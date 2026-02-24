@@ -1,0 +1,11 @@
+ROWS = 8
+COLS = 8
+
+STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+WHITE = "white"
+BLACK = "black"
+
+BOARD_WIDTH = 800
+BOARD_HEIGHT = 800
+SQUARE_SIZE = BOARD_WIDTH // COLS
