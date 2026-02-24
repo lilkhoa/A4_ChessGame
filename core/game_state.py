@@ -1,4 +1,5 @@
 from core.rules import get_legal_moves, is_checkmate, is_stalemate
+from pieces.queen import Queen
 
 class GameState:
     def __init__(self, board_obj):
@@ -23,9 +24,30 @@ class GameState:
         if end_pos in legal_moves:
             captured_piece = self.board[r2][c2]
             
+            if piece.name == "pawn" and c1 != c2 and self.board[r2][c2] is None:
+                captured_piece = self.board[r1][c2]
+                self.board[r1][c2] = None
+
+            if piece.name == "king" and abs(c2 - c1) == 2:
+                if c2 == 6:
+                    rook = self.board[r1][7]
+                    self.board[r1][5] = rook
+                    self.board[r1][7] = None
+                    rook.has_moved = True
+                elif c2 == 2:
+                    rook = self.board[r1][0]
+                    self.board[r1][3] = rook
+                    self.board[r1][0] = None
+                    rook.has_moved = True
+
             self.board[r2][c2] = piece
             self.board[r1][c1] = None
             piece.has_moved = True
+
+            if piece.name == "pawn" and (r2 == 0 or r2 == 7):
+                promoted_piece = Queen(piece.color)
+                promoted_piece.has_moved = True
+                self.board[r2][c2] = promoted_piece
 
             self.move_log.append({
                 "piece": piece,
@@ -41,7 +63,8 @@ class GameState:
         return False
 
     def check_game_over(self):
-        if is_checkmate(self.board, self.current_turn):
+        last_move = self.move_log[-1] if self.move_log else None
+        if is_checkmate(self.board, self.current_turn, last_move):
             self.is_checkmate = True
-        elif is_stalemate(self.board, self.current_turn):
+        elif is_stalemate(self.board, self.current_turn, last_move):
             self.is_stalemate = True
