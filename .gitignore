@@ -1,3 +1,4 @@
+.vscode/
 .github/
 .venv/
 __pycache__/
