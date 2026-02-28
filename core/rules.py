@@ -377,3 +377,141 @@ class Rules:
                 legal_moves.append(move)
         
         return legal_moves
+
+
+# ==================== Standalone Helper Functions ====================
+# These are used by game_state.py and tests, which import them as free functions.
+# They operate on the raw board grid (2D list of Piece/None), NOT the Board object.
+
+def _find_king_on_grid(board_grid, color):
+    """Find the king's position on a raw board grid."""
+    for r in range(8):
+        for c in range(8):
+            p = board_grid[r][c]
+            if p and p.name == "king" and p.color == color:
+                return (r, c)
+    return None
+
+
+def is_in_check(board_grid, color):
+    """
+    Check if the king of the given color is in check.
+
+    Args:
+        board_grid: 8x8 list-of-lists of Piece or None
+        color: 'white' or 'black'
+
+    Returns:
+        bool
+    """
+    king_pos = _find_king_on_grid(board_grid, color)
+    if king_pos is None:
+        return False
+
+    opponent = "black" if color == "white" else "white"
+    for r in range(8):
+        for c in range(8):
+            p = board_grid[r][c]
+            if p and p.color == opponent:
+                try:
+                    attacks = p.get_valid_moves(board_grid, r, c, None)
+                except TypeError:
+                    attacks = p.get_valid_moves(board_grid, r, c)
+                if king_pos in attacks:
+                    return True
+    return False
+
+
+def get_legal_moves(board_grid, piece, row, col, last_move=None):
+    """
+    Get all legal moves for a piece, filtering out moves that leave the king in check.
+
+    Args:
+        board_grid: 8x8 list-of-lists
+        piece: The Piece object to move
+        row, col: Current position of the piece
+        last_move: The last move dict (for en passant), or None
+
+    Returns:
+        list of (row, col) tuples
+    """
+    # Get raw valid moves from the piece
+    try:
+        raw_moves = piece.get_valid_moves(board_grid, row, col, last_move)
+    except TypeError:
+        raw_moves = piece.get_valid_moves(board_grid, row, col)
+
+    legal = []
+    for (er, ec) in raw_moves:
+        # Simulate the move
+        original = board_grid[row][col]
+        captured = board_grid[er][ec]
+
+        # Handle en passant capture simulation
+        ep_captured = None
+        if piece.name == "pawn" and col != ec and board_grid[er][ec] is None:
+            ep_captured = board_grid[row][ec]
+            board_grid[row][ec] = None
+
+        board_grid[er][ec] = original
+        board_grid[row][col] = None
+
+        if not is_in_check(board_grid, piece.color):
+            legal.append((er, ec))
+
+        # Undo
+        board_grid[row][col] = original
+        board_grid[er][ec] = captured
+        if ep_captured is not None:
+            board_grid[row][ec] = ep_captured
+
+    return legal
+
+
+def is_checkmate(board_grid, color, last_move=None):
+    """
+    Check if the given color is in checkmate.
+
+    Args:
+        board_grid: 8x8 list-of-lists
+        color: 'white' or 'black'
+        last_move: Last move dict or None
+
+    Returns:
+        bool
+    """
+    if not is_in_check(board_grid, color):
+        return False
+
+    # Check if any piece of the given color has a legal move
+    for r in range(8):
+        for c in range(8):
+            p = board_grid[r][c]
+            if p and p.color == color:
+                if get_legal_moves(board_grid, p, r, c, last_move):
+                    return False
+    return True
+
+
+def is_stalemate(board_grid, color, last_move=None):
+    """
+    Check if the given color is in stalemate.
+
+    Args:
+        board_grid: 8x8 list-of-lists
+        color: 'white' or 'black'
+        last_move: Last move dict or None
+
+    Returns:
+        bool
+    """
+    if is_in_check(board_grid, color):
+        return False
+
+    for r in range(8):
+        for c in range(8):
+            p = board_grid[r][c]
+            if p and p.color == color:
+                if get_legal_moves(board_grid, p, r, c, last_move):
+                    return False
+    return True
