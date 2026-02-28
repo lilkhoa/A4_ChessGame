@@ -9,6 +9,13 @@ class GameState:
         self.move_log = []
         self.is_checkmate = False
         self.is_stalemate = False
+        self.white_time = 300.0  # 5 minutes in seconds
+        self.black_time = 300.0
+        self.timeout_winner = None
+
+    @property
+    def is_game_over(self):
+        return self.is_checkmate or self.is_stalemate or self.timeout_winner is not None
 
     def process_move(self, start_pos, end_pos):
         r1, c1 = start_pos
