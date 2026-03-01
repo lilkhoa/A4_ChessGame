@@ -1,5 +1,6 @@
 from typing import List, Tuple, Optional, Set
 from collections import defaultdict
+from core.move import Move
 
 
 class Rules:
@@ -24,19 +25,26 @@ class Rules:
         Returns:
             bool: True if the move is legal, False otherwise
         """
-        piece = board.get_piece(move.start)
+        piece = board.get_piece(move.start_row, move.start_col)
         
         # Check if there's a piece at the start position
         if piece is None:
             return False
             
         # Check if it's the correct player's turn
-        if piece.color != game_state.current_player:
+        if piece.color != game_state.current_turn:
             return False
             
         # Check if the move follows the piece's movement rules
-        valid_moves = piece.get_valid_moves(board, move.start)
-        if move.end not in valid_moves:
+        # Get last move for en passant detection
+        last_move = game_state.move_log[-1] if hasattr(game_state, 'move_log') and game_state.move_log else None
+        try:
+            valid_moves = piece.get_valid_moves(board.grid, move.start_row, move.start_col, last_move)
+        except TypeError:
+            valid_moves = piece.get_valid_moves(board.grid, move.start_row, move.start_col)
+        
+        end_position = (move.end_row, move.end_col)
+        if end_position not in valid_moves:
             return False
             
         # Check if the move would leave the king in check (simulate the move)
@@ -59,23 +67,61 @@ class Rules:
         """
         legal_moves = []
         
+        # Get last move for en passant detection
+        last_move = game_state.move_log[-1] if hasattr(game_state, 'move_log') and game_state.move_log else None
+        
         # Iterate through all positions on the board
         for row in range(8):
             for col in range(8):
-                position = (row, col)
-                piece = board.get_piece(position)
+                piece = board.get_piece(row, col)
                 
                 if piece is not None and piece.color == color:
-                    valid_moves = piece.get_valid_moves(board, position)
+                    # Get all valid moves for this piece
+                    try:
+                        valid_moves = piece.get_valid_moves(board.grid, row, col, last_move)
+                    except TypeError:
+                        valid_moves = piece.get_valid_moves(board.grid, row, col)
                     
+                    # Filter out moves that would leave the king in check
                     for end_position in valid_moves:
-                        from core.move import Move
-                        move = Move(position, end_position)
+                        move = Move((row, col), end_position, board.grid)
                         
                         if not self._would_leave_king_in_check(board, move, color):
                             legal_moves.append(move)
         
         return legal_moves
+    
+    def get_legal_moves_for_piece(self, board, piece, row: int, col: int, last_move=None) -> List[Tuple[int, int]]:
+        """
+        Get all legal moves for a specific piece at a given position.
+        
+        This method gets the valid moves for a piece and filters out moves
+        that would leave the king in check.
+        
+        Args:
+            board: The current board state (Board object)
+            piece: The piece to get moves for
+            row: The row position of the piece
+            col: The column position of the piece
+            last_move: The last move dict (for en passant detection), or None
+            
+        Returns:
+            List[Tuple[int, int]]: List of legal move positions as (row, col) tuples
+        """
+        # Get raw valid moves from the piece
+        try:
+            raw_moves = piece.get_valid_moves(board.grid, row, col, last_move)
+        except TypeError:
+            raw_moves = piece.get_valid_moves(board.grid, row, col)
+        
+        legal = []
+        for (er, ec) in raw_moves:
+            move = Move((row, col), (er, ec), board.grid)
+            
+            if not self._would_leave_king_in_check(board, move, piece.color):
+                legal.append((er, ec))
+        
+        return legal
     
     def is_in_check(self, board, color: str) -> bool:
         """
@@ -99,11 +145,15 @@ class Rules:
         # Iterate through all opponent pieces
         for row in range(8):
             for col in range(8):
-                position = (row, col)
-                piece = board.get_piece(position)
+                piece = board.get_piece(row, col)
                 
                 if piece is not None and piece.color == opponent_color:
-                    valid_moves = piece.get_valid_moves(board, position)
+                    try:
+                        valid_moves = piece.get_valid_moves(board.grid, row, col, None)
+                    except TypeError:
+                        valid_moves = piece.get_valid_moves(board.grid, row, col)
+                    
+                    # Check if the king's position is under attack
                     if king_position in valid_moves:
                         return True
         
@@ -164,12 +214,12 @@ class Rules:
         
         for row in range(8):
             for col in range(8):
-                piece = board.get_piece((row, col))
+                piece = board.get_piece(row, col)
                 if piece is not None:
                     if piece.color == 'white':
-                        white_pieces.append((piece.piece_type, (row, col)))
+                        white_pieces.append((piece.name, (row, col)))
                     else:
-                        black_pieces.append((piece.piece_type, (row, col)))
+                        black_pieces.append((piece.name, (row, col)))
         
         white_pieces = [(p, pos) for p, pos in white_pieces if p != 'king']
         black_pieces = [(p, pos) for p, pos in black_pieces if p != 'king']
@@ -296,19 +346,27 @@ class Rules:
             bool: True if the move would leave the king in check, False otherwise
         """
         # Simulate the move
-        original_piece = board.get_piece(move.start)
-        captured_piece = board.get_piece(move.end)
+        original_piece = board.get_piece(move.start_row, move.start_col)
+        captured_piece = board.get_piece(move.end_row, move.end_col)
+        
+        # Handle en passant capture simulation
+        ep_captured = None
+        if original_piece and original_piece.name == "pawn" and move.start_col != move.end_col and captured_piece is None:
+            ep_captured = board.get_piece(move.start_row, move.end_col)
+            board.set_piece((move.start_row, move.end_col), None)
         
         # Temporarily make the move
-        board.set_piece(move.end, original_piece)
-        board.set_piece(move.start, None)
+        board.set_piece((move.end_row, move.end_col), original_piece)
+        board.set_piece((move.start_row, move.start_col), None)
         
         # Check if the king is in check
         in_check = self.is_in_check(board, color)
         
         # Undo the move
-        board.set_piece(move.start, original_piece)
-        board.set_piece(move.end, captured_piece)
+        board.set_piece((move.start_row, move.start_col), original_piece)
+        board.set_piece((move.end_row, move.end_col), captured_piece)
+        if ep_captured is not None:
+            board.set_piece((move.start_row, move.end_col), ep_captured)
         
         return in_check
     
@@ -325,11 +383,10 @@ class Rules:
         """
         for row in range(8):
             for col in range(8):
-                position = (row, col)
-                piece = board.get_piece(position)
+                piece = board.get_piece(row, col)
                 
-                if piece is not None and piece.color == color and piece.piece_type == 'king':
-                    return position
+                if piece is not None and piece.color == color and piece.name == 'king':
+                    return (row, col)
         
         return None
     
@@ -347,11 +404,11 @@ class Rules:
         
         for row in range(8):
             for col in range(8):
-                piece = board.get_piece((row, col))
+                piece = board.get_piece(row, col)
                 if piece is None:
                     position_str += "."
                 else:
-                    position_str += piece.color[0] + piece.piece_type[0]
+                    position_str += piece.color[0] + piece.name[0]
         
         return position_str
     
@@ -377,141 +434,3 @@ class Rules:
                 legal_moves.append(move)
         
         return legal_moves
-
-
-# ==================== Standalone Helper Functions ====================
-# These are used by game_state.py and tests, which import them as free functions.
-# They operate on the raw board grid (2D list of Piece/None), NOT the Board object.
-
-def _find_king_on_grid(board_grid, color):
-    """Find the king's position on a raw board grid."""
-    for r in range(8):
-        for c in range(8):
-            p = board_grid[r][c]
-            if p and p.name == "king" and p.color == color:
-                return (r, c)
-    return None
-
-
-def is_in_check(board_grid, color):
-    """
-    Check if the king of the given color is in check.
-
-    Args:
-        board_grid: 8x8 list-of-lists of Piece or None
-        color: 'white' or 'black'
-
-    Returns:
-        bool
-    """
-    king_pos = _find_king_on_grid(board_grid, color)
-    if king_pos is None:
-        return False
-
-    opponent = "black" if color == "white" else "white"
-    for r in range(8):
-        for c in range(8):
-            p = board_grid[r][c]
-            if p and p.color == opponent:
-                try:
-                    attacks = p.get_valid_moves(board_grid, r, c, None)
-                except TypeError:
-                    attacks = p.get_valid_moves(board_grid, r, c)
-                if king_pos in attacks:
-                    return True
-    return False
-
-
-def get_legal_moves(board_grid, piece, row, col, last_move=None):
-    """
-    Get all legal moves for a piece, filtering out moves that leave the king in check.
-
-    Args:
-        board_grid: 8x8 list-of-lists
-        piece: The Piece object to move
-        row, col: Current position of the piece
-        last_move: The last move dict (for en passant), or None
-
-    Returns:
-        list of (row, col) tuples
-    """
-    # Get raw valid moves from the piece
-    try:
-        raw_moves = piece.get_valid_moves(board_grid, row, col, last_move)
-    except TypeError:
-        raw_moves = piece.get_valid_moves(board_grid, row, col)
-
-    legal = []
-    for (er, ec) in raw_moves:
-        # Simulate the move
-        original = board_grid[row][col]
-        captured = board_grid[er][ec]
-
-        # Handle en passant capture simulation
-        ep_captured = None
-        if piece.name == "pawn" and col != ec and board_grid[er][ec] is None:
-            ep_captured = board_grid[row][ec]
-            board_grid[row][ec] = None
-
-        board_grid[er][ec] = original
-        board_grid[row][col] = None
-
-        if not is_in_check(board_grid, piece.color):
-            legal.append((er, ec))
-
-        # Undo
-        board_grid[row][col] = original
-        board_grid[er][ec] = captured
-        if ep_captured is not None:
-            board_grid[row][ec] = ep_captured
-
-    return legal
-
-
-def is_checkmate(board_grid, color, last_move=None):
-    """
-    Check if the given color is in checkmate.
-
-    Args:
-        board_grid: 8x8 list-of-lists
-        color: 'white' or 'black'
-        last_move: Last move dict or None
-
-    Returns:
-        bool
-    """
-    if not is_in_check(board_grid, color):
-        return False
-
-    # Check if any piece of the given color has a legal move
-    for r in range(8):
-        for c in range(8):
-            p = board_grid[r][c]
-            if p and p.color == color:
-                if get_legal_moves(board_grid, p, r, c, last_move):
-                    return False
-    return True
-
-
-def is_stalemate(board_grid, color, last_move=None):
-    """
-    Check if the given color is in stalemate.
-
-    Args:
-        board_grid: 8x8 list-of-lists
-        color: 'white' or 'black'
-        last_move: Last move dict or None
-
-    Returns:
-        bool
-    """
-    if is_in_check(board_grid, color):
-        return False
-
-    for r in range(8):
-        for c in range(8):
-            p = board_grid[r][c]
-            if p and p.color == color:
-                if get_legal_moves(board_grid, p, r, c, last_move):
-                    return False
-    return True

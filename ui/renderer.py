@@ -77,7 +77,7 @@ class Renderer:
         self.draw_sidebar(screen, game_state)
 
         # Draw game-over overlay
-        if game_state.is_checkmate or game_state.is_stalemate:
+        if game_state.is_checkmate or game_state.is_draw or game_state.timeout_winner:
             self.draw_game_over_overlay(screen, game_state)
 
     def draw_sidebar(self, screen, game_state):
@@ -205,8 +205,18 @@ class Renderer:
             winner = "Black" if game_state.current_turn == "white" else "White"
             status = f"Checkmate! {winner} wins"
             color = COLOR_DANGER
-        elif game_state.is_stalemate:
-            status = "Stalemate — Draw"
+        elif game_state.is_draw:
+            # Show specific draw reason
+            if game_state.draw_reason == 'stalemate':
+                status = "Draw (Stalemate)"
+            elif game_state.draw_reason == 'threefold_repetition':
+                status = "Draw (3-fold rep.)"
+            elif game_state.draw_reason == 'insufficient_material':
+                status = "Draw (Insuff. mat.)"
+            elif game_state.draw_reason == 'fifty_move_rule':
+                status = "Draw (50-move rule)"
+            else:
+                status = "Draw"
             color = (255, 193, 37)
         else:
             status = "In progress"
@@ -249,9 +259,22 @@ class Renderer:
             winner = "Black" if game_state.current_turn == "white" else "White"
             title = "CHECKMATE"
             subtitle = f"{winner} wins!"
+        elif game_state.is_draw:
+            title = "DRAW"
+            # Show specific draw reason if available
+            if game_state.draw_reason == 'stalemate':
+                subtitle = "Stalemate"
+            elif game_state.draw_reason == 'threefold_repetition':
+                subtitle = "Threefold repetition"
+            elif game_state.draw_reason == 'insufficient_material':
+                subtitle = "Insufficient material"
+            elif game_state.draw_reason == 'fifty_move_rule':
+                subtitle = "Fifty-move rule"
+            else:
+                subtitle = "Game drawn"
         else:
-            title = "STALEMATE"
-            subtitle = "Draw"
+            title = "GAME OVER"
+            subtitle = "Game ended"
 
         # Render text centered on the board
         text1 = self.font_large.render(title, True, (255, 255, 255))
