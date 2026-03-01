@@ -94,7 +94,7 @@ class TurnController:
             }
         
         # Validate it's the correct player's turn
-        piece = self.board.get_piece(move.start)
+        piece = self.board.get_piece(move.start_row, move.start_col)
         if piece is None:
             return {
                 'success': False,
@@ -174,8 +174,8 @@ class TurnController:
         self.move_count += 1
         
         # Update game state if it exists
-        if hasattr(self.game_state, 'current_player'):
-            self.game_state.current_player = self.current_player
+        if hasattr(self.game_state, 'current_turn'):
+            self.game_state.current_turn = self.current_player
     
     # ==================== Game Over Detection ====================
     

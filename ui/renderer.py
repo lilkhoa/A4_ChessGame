@@ -77,7 +77,7 @@ class Renderer:
         self.draw_sidebar(screen, game_state)
 
         # Draw game-over overlay
-        if game_state.is_checkmate or game_state.is_stalemate:
+        if game_state.is_checkmate or game_state.is_draw or game_state.timeout_winner:
             self.draw_game_over_overlay(screen, game_state)
 
     def draw_sidebar(self, screen, game_state):
@@ -205,8 +205,8 @@ class Renderer:
             winner = "Black" if game_state.current_turn == "white" else "White"
             status = f"Checkmate! {winner} wins"
             color = COLOR_DANGER
-        elif game_state.is_stalemate:
-            status = "Stalemate — Draw"
+        elif game_state.is_draw:
+            status = "Draw"
             color = (255, 193, 37)
         else:
             status = "In progress"
