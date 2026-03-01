@@ -268,7 +268,7 @@ class Rules:
         """
         current_position = self._get_position_hash(board)
         count = self.position_history.count(current_position)
-        return count >= 2
+        return count >= 3
     
     def is_fifty_move_rule(self, game_state) -> bool:
         """
