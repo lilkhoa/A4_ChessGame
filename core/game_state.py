@@ -1,7 +1,7 @@
 # core/game_state.py
 
 
-from core.rules import get_legal_moves, is_checkmate, is_stalemate
+from core.rules import Rules
 from core.board import Board
 from core.move import Move
 
@@ -16,13 +16,16 @@ class GameState:
     def __init__(self, board_obj):
 
         self.board_obj = board_obj
-        self.board = board_obj.grid 
+        self.board = board_obj.grid
+        
+        # Initialize Rules engine
+        self.rules = Rules() 
 
         self.current_turn = "white"
         self.move_log = []
 
         self.is_checkmate = False
-        self.is_stalemate = False
+        self.is_draw = False
         self.timeout_winner = None
 
         self.white_time = 300.0  # 5 minutes in seconds
@@ -33,7 +36,7 @@ class GameState:
         """
             Check whether game is over
         """
-        return self.is_checkmate or self.is_stalemate or self.timeout_winner is not None
+        return self.is_checkmate or self.is_draw or self.timeout_winner is not None
 
     def process_move(self, start_pos, end_pos):
         """
@@ -47,7 +50,7 @@ class GameState:
             return False
 
         last_move = self.move_log[-1] if self.move_log else None
-        legal_moves = get_legal_moves(self.board, piece, r1, c1, last_move)
+        legal_moves = self.rules.get_legal_moves_for_piece(self.board_obj, piece, r1, c1, last_move)
         
         if end_pos in legal_moves:
 
@@ -79,8 +82,8 @@ class GameState:
         """
             Check and update game over flag
         """
-        last_move = self.move_log[-1] if self.move_log else None
-        if is_checkmate(self.board, self.current_turn, last_move):
+        # Check for checkmate
+        if self.rules.is_checkmate(self.board_obj, self, self.current_turn):
             self.is_checkmate = True
-        elif is_stalemate(self.board, self.current_turn, last_move):
-            self.is_stalemate = True
+        elif self.rules.is_draw(self.board_obj, self, self.current_turn):
+            self.is_draw = True
