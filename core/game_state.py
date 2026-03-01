@@ -32,6 +32,8 @@ class GameState:
         self.white_time = 300.0
         self.black_time = 300.0
 
+        self.halfmove_clock = 0
+
     @property
     def is_game_over(self):
         """
@@ -64,7 +66,17 @@ class GameState:
             elif piece.name == "pawn" and (r2 == 0 or r2 == 7):
                 move.is_promotion = True
             
+            # Check whether a piece is captured (include en passant move)
+            is_capture = (move.piece_captured is not None) or move.is_en_passant
+            is_pawn_move = (piece.name == "pawn")
+
             self.board_obj.move_piece(move)
+
+            if is_pawn_move or is_capture:
+                self.halfmove_clock = 0
+            else:
+                self.halfmove_clock += 1
+
 
             self.move_log.append({
                 "piece": piece,
@@ -87,5 +99,6 @@ class GameState:
         # Check for checkmate
         if self.rules.is_checkmate(self.board_obj, self, self.current_turn):
             self.is_checkmate = True
+        # Check for draw (includes stalemate, 50-move rule, insufficient material, 3-fold repetition)
         elif self.rules.is_draw(self.board_obj, self, self.current_turn):
             self.is_draw = True
