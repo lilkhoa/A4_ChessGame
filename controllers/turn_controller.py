@@ -193,6 +193,9 @@ class TurnController:
         """
         current_color = self.current_player
         
+        # Update game_state's game over flags
+        self.game_state.check_game_over()
+        
         # Check for checkmate
         if self.rules.is_checkmate(self.board, self.game_state, current_color):
             self.game_over = True
@@ -209,21 +212,26 @@ class TurnController:
             self.game_over = True
             self.winner = None
             
-            # Determine specific draw reason
+            # Determine specific draw reason and update game_state
             if self.rules.is_insufficient_material(self.board):
                 self.game_over_reason = 'insufficient_material'
+                self.game_state.draw_reason = 'insufficient_material'
                 message = 'Game drawn by insufficient material'
             elif self.rules.is_threefold_repetition(self.board):
                 self.game_over_reason = 'threefold_repetition'
+                self.game_state.draw_reason = 'threefold_repetition'
                 message = 'Game drawn by threefold repetition'
             elif self.rules.is_fifty_move_rule(self.game_state):
                 self.game_over_reason = 'fifty_move_rule'
+                self.game_state.draw_reason = 'fifty_move_rule'
                 message = 'Game drawn by fifty-move rule'
             elif self.rules.is_stalemate(self.board, self.game_state, current_color):
                 self.game_over_reason = 'stalemate'
+                self.game_state.draw_reason = 'stalemate'
                 message = 'Game drawn by stalemate'
             else:
                 self.game_over_reason = 'draw'
+                self.game_state.draw_reason = 'draw'
                 message = 'Game drawn'
             
             return {
@@ -269,12 +277,12 @@ class TurnController:
     
     # ==================== Clock Management ====================
     
-    def enable_clock(self, time_per_player: float = 600.0):
+    def enable_clock(self, time_per_player: float = 300.0):
         """
         Enable the game clock.
         
         Args:
-            time_per_player: Time in seconds for each player (default: 600 = 10 minutes)
+            time_per_player: Time in seconds for each player (default: 300 = 5 minutes)
         """
         self.clock_enabled = True
         self.white_time_remaining = time_per_player

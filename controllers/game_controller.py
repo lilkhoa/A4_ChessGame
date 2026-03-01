@@ -23,8 +23,8 @@ class GameController:
         
         # Initialize core components
         self.board = Board()
-        self.game_state = GameState(self.board)
         self.rules = Rules()
+        self.game_state = GameState(self.board, rules=self.rules)
         self.turn_controller = TurnController(
             game_state=self.game_state,
             rules=self.rules,
@@ -38,6 +38,10 @@ class GameController:
         # Game state flags
         self.running = True
         
+        # Clock settings for reset
+        self.clock_enabled = False
+        self.time_per_player = 300.0  # Default: 5 minutes
+        
     def run(self):
         """
         Main game loop following the Input → Update → Render pattern.
@@ -48,8 +52,8 @@ class GameController:
             # Input: Process all events
             self._handle_events()
             
-            # Update: Game state updates happen in event handlers
-            # (No continuous updates needed for turn-based chess)
+            # Update: Sync timer values from turn_controller to game_state
+            self._update_timers()
             
             # Render: Draw the current game state
             self._render()
@@ -115,11 +119,11 @@ class GameController:
         move_successful = self.game_state.process_move(start_pos, end_pos)
         
         if move_successful:
-            # Move was successful - complete the turn
-            turn_result = self.turn_controller.complete_turn(move_successful=True)
-            
-            # Update position history for threefold repetition detection
+            # Update position history BEFORE switching turns for threefold repetition
             self.rules.update_position_history(self.board)
+            
+            # Complete the turn (switches player)
+            turn_result = self.turn_controller.complete_turn(move_successful=True)
             
             # Check game status
             if turn_result['game_over']:
@@ -138,13 +142,26 @@ class GameController:
         """
         status_type = game_status.get('status', 'unknown')
         message = game_status.get('message', 'Game over')
+        
+        # Log game over for debugging
+        print(f"Game Over: {message} (Status: {status_type})")
 
+    
+    def _update_timers(self):
+        """
+        Update game_state timer values from turn_controller.
+        
+        This syncs the dynamic timer values so the renderer can display them.
+        """
+        if self.turn_controller.clock_enabled:
+            self.game_state.white_time = self.turn_controller.get_time_remaining('white')
+            self.game_state.black_time = self.turn_controller.get_time_remaining('black')
+            self.game_state.timeout_winner = self.turn_controller.winner if self.turn_controller.game_over_reason == 'timeout' else None
     
     def _trigger_ai_move(self):
         """
         Trigger AI to make a move (placeholder for future AI integration).
         """
-
         # Future AI implementation will go here
         # For now, this is just a placeholder
         pass
@@ -171,13 +188,17 @@ class GameController:
         """
         # Reinitialize core components
         self.board = Board()
-        self.game_state = GameState(self.board)
         self.rules = Rules()
+        self.game_state = GameState(self.board, rules=self.rules)
         self.turn_controller = TurnController(
             game_state=self.game_state,
             rules=self.rules,
             board=self.board
         )
+        
+        # Re-enable clock if it was enabled before
+        if self.clock_enabled:
+            self.turn_controller.enable_clock(self.time_per_player)
         
         # Clear input handler state
         self.input_handler.selected_square = None
@@ -186,13 +207,15 @@ class GameController:
         self.input_handler.drag_piece = None
         self.input_handler.drag_start = None
     
-    def enable_clock(self, time_per_player=600.0):
+    def enable_clock(self, time_per_player=300.0):
         """
         Enable the game clock with specified time control.
         
         Args:
-            time_per_player: Time in seconds for each player (default: 10 minutes)
+            time_per_player: Time in seconds for each player (default: 5 minutes)
         """
+        self.clock_enabled = True
+        self.time_per_player = time_per_player
         self.turn_controller.enable_clock(time_per_player)
     
     def enable_ai(self, ai_color, ai_callback):

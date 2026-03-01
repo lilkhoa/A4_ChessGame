@@ -13,22 +13,23 @@ from pieces.queen import Queen
 from pieces.king import King
 
 class GameState:
-    def __init__(self, board_obj):
+    def __init__(self, board_obj, rules=None):
 
         self.board_obj = board_obj
         self.board = board_obj.grid
         
-        # Initialize Rules engine
-        self.rules = Rules() 
+        # Use shared Rules engine or create new one
+        self.rules = rules if rules is not None else Rules() 
 
         self.current_turn = "white"
         self.move_log = []
 
         self.is_checkmate = False
         self.is_draw = False
+        self.draw_reason = None
         self.timeout_winner = None
 
-        self.white_time = 300.0  # 5 minutes in seconds
+        self.white_time = 300.0
         self.black_time = 300.0
 
     @property
@@ -72,8 +73,8 @@ class GameState:
                 "captured": move.piece_captured
             })
 
-            self.current_turn = "black" if self.current_turn == "white" else "white"
-            self.check_game_over()
+            # Don't switch turn here - let turn_controller handle it
+            # self.current_turn will be switched by turn_controller.complete_turn()
             return True
             
         return False
@@ -81,6 +82,7 @@ class GameState:
     def check_game_over(self):
         """
             Check and update game over flag
+            Note: This checks the CURRENT player (after turn switch)
         """
         # Check for checkmate
         if self.rules.is_checkmate(self.board_obj, self, self.current_turn):
