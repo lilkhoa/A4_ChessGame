@@ -20,4 +20,4 @@ class Move:
         return False
     
     def __str__(self):
-        return f"Move({self.start_row},{self.start_col} -> {self.end_row}{self.end_col})"
+        return f"Move({self.start_row},{self.start_col} -> {self.end_row},{self.end_col})"

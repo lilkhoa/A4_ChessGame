@@ -87,7 +87,7 @@ class Board:
         self.grid[move.start_row][move.start_col] = None
 
         if piece is not None:
-            piece.has_moved     # Piece.has_moved
+            piece.has_moved = True    # Piece.has_moved
 
         # --- Handle special rule based on flags from Move ---
         if getattr(move, 'is_castle', False):
