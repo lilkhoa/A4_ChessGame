@@ -52,9 +52,16 @@ class GameController:
         
         This loop continues until the player closes the window or quits the game.
         """
+        # Check if AI should move first (if AI is white)
+        if self.turn_controller._is_ai_turn():
+            self.turn_controller._trigger_ai()
+        
         while self.running:
             # Input: Process all events
             self._handle_events()
+            
+            # Check for pending AI moves and execute them
+            self._check_and_execute_ai_move()
             
             # Update: Sync timer values from turn_controller to game_state
             self._update_timers()
@@ -162,15 +169,14 @@ class GameController:
             self.game_state.black_time = self.turn_controller.get_time_remaining('black')
             self.game_state.timeout_winner = self.turn_controller.winner if self.turn_controller.game_over_reason == 'timeout' else None
     
-    def _trigger_ai_move(self):
+    def _check_and_execute_ai_move(self):
         """
-        Process AI move if one is pending.
+        Check for pending AI moves and execute them.
         
-        This is called after a turn completes and it's the AI's turn.
-        The turn_controller will have already called the AI callback,
-        which stores the move in game_state.pending_ai_move.
+        This is called every frame in the main game loop to process AI moves
+        as soon as they're ready.
         """
-        if hasattr(self.game_state, 'pending_ai_move') and self.game_state.pending_ai_move is not None:
+        if self.game_state.pending_ai_move is not None:
             ai_move = self.game_state.pending_ai_move
             self.game_state.pending_ai_move = None
             
@@ -182,6 +188,17 @@ class GameController:
             pygame.time.delay(300)  # 300ms delay so players can see the move
             
             self._attempt_move(start_pos, end_pos)
+    
+    def _trigger_ai_move(self):
+        """
+        Trigger AI to generate its move.
+        
+        This is called after a turn completes and it's the AI's turn.
+        The AI move will be executed in the next frame by _check_and_execute_ai_move().
+        """
+        # The turn_controller._trigger_ai() has already been called
+        # and set pending_ai_move, so we don't need to do anything here
+        pass
     
     def _render(self):
         """
@@ -221,6 +238,9 @@ class GameController:
         if self.ai_agent is not None:
             self.ai_agent.reset()  # Reset agent state
             self.turn_controller.enable_ai(self.ai_color, self.ai_agent.get_move)
+            # Trigger AI if it's AI's turn after reset (e.g., if AI is white)
+            if self.turn_controller._is_ai_turn():
+                self.turn_controller._trigger_ai()
         
         # Clear input handler state
         self.input_handler.selected_square = None

@@ -1,4 +1,5 @@
 from controllers.game_controller import GameController
+from agents import RandomAgent, MinimaxAgent
 
 
 def main():
@@ -12,9 +13,11 @@ def main():
     #   from agents import RandomAgent
     #   ai = RandomAgent("Easy Bot")
     #   game.enable_ai(ai_color='black', ai_agent=ai)
-    #
-    # For more AI examples, see: example_with_ai.py
-    
+
+    # Example with MinimaxAgent:    
+    ai = MinimaxAgent(name="Minimax Bot", depth=3)
+    game.enable_ai(ai_color='black', ai_agent=ai)
+
     # Start the game loop
     game.run()
 
