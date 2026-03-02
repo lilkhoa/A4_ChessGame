@@ -423,13 +423,13 @@ class TurnController:
             # Call the AI algorithm to get the best move
             ai_move = self.ai_callback(self.board, self.game_state, self.ai_color)
             
-            # The AI move will be processed by the game controller
-            # This method just triggers the AI; actual execution happens elsewhere
-            if hasattr(self.game_state, 'pending_ai_move'):
-                self.game_state.pending_ai_move = ai_move
+            # Store the move for game controller to execute
+            self.game_state.pending_ai_move = ai_move
                 
         except Exception as e:
             print(f"AI error: {e}")
+            import traceback
+            traceback.print_exc()
             # If AI fails, human can take over
     
     # ==================== Utility Methods ====================

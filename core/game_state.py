@@ -33,6 +33,9 @@ class GameState:
         self.black_time = 300.0
 
         self.halfmove_clock = 0
+        
+        # For AI integration
+        self.pending_ai_move = None
 
     @property
     def is_game_over(self):
