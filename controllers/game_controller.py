@@ -42,6 +42,10 @@ class GameController:
         self.clock_enabled = False
         self.time_per_player = 300.0  # Default: 5 minutes
         
+        # AI settings for reset
+        self.ai_agent = None
+        self.ai_color = None
+        
     def run(self):
         """
         Main game loop following the Input → Update → Render pattern.
@@ -160,11 +164,24 @@ class GameController:
     
     def _trigger_ai_move(self):
         """
-        Trigger AI to make a move (placeholder for future AI integration).
+        Process AI move if one is pending.
+        
+        This is called after a turn completes and it's the AI's turn.
+        The turn_controller will have already called the AI callback,
+        which stores the move in game_state.pending_ai_move.
         """
-        # Future AI implementation will go here
-        # For now, this is just a placeholder
-        pass
+        if hasattr(self.game_state, 'pending_ai_move') and self.game_state.pending_ai_move is not None:
+            ai_move = self.game_state.pending_ai_move
+            self.game_state.pending_ai_move = None
+            
+            # Execute the AI's chosen move
+            start_pos = (ai_move.start_row, ai_move.start_col)
+            end_pos = (ai_move.end_row, ai_move.end_col)
+            
+            # Use pygame.time.delay to make AI move visible (optional)
+            pygame.time.delay(300)  # 300ms delay so players can see the move
+            
+            self._attempt_move(start_pos, end_pos)
     
     def _render(self):
         """
@@ -200,6 +217,11 @@ class GameController:
         if self.clock_enabled:
             self.turn_controller.enable_clock(self.time_per_player)
         
+        # Re-enable AI if it was enabled before
+        if self.ai_agent is not None:
+            self.ai_agent.reset()  # Reset agent state
+            self.turn_controller.enable_ai(self.ai_color, self.ai_agent.get_move)
+        
         # Clear input handler state
         self.input_handler.selected_square = None
         self.input_handler.valid_moves = []
@@ -218,15 +240,31 @@ class GameController:
         self.time_per_player = time_per_player
         self.turn_controller.enable_clock(time_per_player)
     
-    def enable_ai(self, ai_color, ai_callback):
+    def enable_ai(self, ai_color, ai_agent=None, ai_callback=None):
         """
         Enable AI for a specific color.
         
+        You can pass either an agent object or a callback function:
+        - Agent object: game.enable_ai('black', ai_agent=RandomAgent())
+        - Callback function: game.enable_ai('black', ai_callback=my_callback)
+        
         Args:
             ai_color: 'white' or 'black'
-            ai_callback: Function to call for AI moves
+            ai_agent: An agent object (must have get_move method)
+            ai_callback: Function to call for AI moves (if not using agent)
         """
-        self.turn_controller.enable_ai(ai_color, ai_callback)
+        if ai_agent is not None:
+            # Store agent for reset functionality
+            self.ai_agent = ai_agent
+            self.ai_color = ai_color
+            callback = ai_agent.get_move
+        elif ai_callback is not None:
+            callback = ai_callback
+            self.ai_color = ai_color
+        else:
+            raise ValueError("Must provide either ai_agent or ai_callback")
+        
+        self.turn_controller.enable_ai(ai_color, callback)
     
     def get_game_info(self):
         """

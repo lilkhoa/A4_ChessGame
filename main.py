@@ -8,7 +8,12 @@ def main():
     game.enable_clock(time_per_player=300.0)  # 5 minutes per player
     
     # Optional: Enable AI (uncomment when AI is implemented)
-    # game.enable_ai(ai_color='black', ai_callback=your_ai_function)
+    # Example:
+    #   from agents import RandomAgent
+    #   ai = RandomAgent("Easy Bot")
+    #   game.enable_ai(ai_color='black', ai_agent=ai)
+    #
+    # For more AI examples, see: example_with_ai.py
     
     # Start the game loop
     game.run()
