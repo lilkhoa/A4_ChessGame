@@ -230,9 +230,7 @@ class Renderer:
     def _draw_controls_help(self, screen, x, y):
         """Draw keyboard shortcut help at the bottom of the sidebar."""
         controls = [
-            ("R", "Restart game"),
-            ("ESC", "Deselect"),
-            ("Q", "Quit"),
+            ("ESC", "Pause / Menu"),
         ]
         
         label = self.font_small.render("CONTROLS", True, COLOR_TEXT_SECONDARY)
@@ -279,7 +277,7 @@ class Renderer:
         # Render text centered on the board
         text1 = self.font_large.render(title, True, (255, 255, 255))
         text2 = self.font_overlay.render(subtitle, True, (200, 200, 200))
-        restart_text = self.font_body.render("Press R to restart", True, COLOR_ACCENT)
+        restart_text = self.font_body.render("Press ESC for Menu", True, COLOR_ACCENT)
 
         cx = BOARD_WIDTH // 2
 
