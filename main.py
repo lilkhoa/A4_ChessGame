@@ -5,20 +5,14 @@ from agents import RandomAgent, MinimaxAgent
 def main():
     game = GameController()
     
-    # Optional: Enable time control (uncomment to use)
-    game.enable_clock(time_per_player=300.0)  # 5 minutes per player
+    # Enable time control: 5 minutes per player
+    game.enable_clock(time_per_player=300.0)
     
-    # Optional: Enable AI (uncomment when AI is implemented)
-    # Example:
-    #   from agents import RandomAgent
-    #   ai = RandomAgent("Easy Bot")
-    #   game.enable_ai(ai_color='black', ai_agent=ai)
-
-    # Example with MinimaxAgent:    
+    # Enable AI opponent (Minimax, depth 3)
     ai = MinimaxAgent(name="Minimax Bot", depth=3)
     game.enable_ai(ai_color='black', ai_agent=ai)
 
-    # Start the game loop
+    # Start the app (menu → game → pause cycle)
     game.run()
 
 

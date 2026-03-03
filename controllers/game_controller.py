@@ -2,15 +2,19 @@ import pygame
 from core.board import Board
 from core.game_state import GameState
 from core.rules import Rules
+from core.save_manager import SaveManager
 from controllers.turn_controller import TurnController
 from ui.renderer import Renderer
 from ui.input_handler import InputHandler
+from ui.menu import MainMenu
+from ui.pause_menu import PauseMenu
 from config import WINDOW_WIDTH, WINDOW_HEIGHT, FPS, COLOR_BG
 
 
 class GameController:
     """
     Main game controller that bridges the core logic and UI rendering.
+    Manages the full app lifecycle: Menu → Playing → Paused → Menu.
     """
     
     def __init__(self):
@@ -34,9 +38,14 @@ class GameController:
         # Initialize UI components
         self.renderer = Renderer()
         self.input_handler = InputHandler()
+        self.main_menu = MainMenu()
+        self.pause_menu = PauseMenu()
         
         # Game state flags
         self.running = True
+        
+        # App state: "menu", "playing", "paused"
+        self.app_state = "menu"
         
         # Clock settings for reset
         self.clock_enabled = False
@@ -45,18 +54,55 @@ class GameController:
         # AI settings for reset
         self.ai_agent = None
         self.ai_color = None
-        
+
     def run(self):
         """
-        Main game loop following the Input → Update → Render pattern.
+        Main application loop.
         
-        This loop continues until the player closes the window or quits the game.
+        Manages transitions between Menu → Playing → Paused states.
+        """
+        while self.running:
+            if self.app_state == "menu":
+                self._run_menu()
+            elif self.app_state == "playing":
+                self._run_game()
+            elif self.app_state == "paused":
+                self._run_pause()
+        
+        # Clean up
+        pygame.quit()
+
+    # ==================== Menu State ====================
+
+    def _run_menu(self):
+        """Show the main menu and handle user choice."""
+        has_save = SaveManager.has_save()
+        action = self.main_menu.show(self.screen, self.clock, has_save=has_save)
+        
+        if action == "new_game":
+            self._start_new_game()
+            self.app_state = "playing"
+        elif action == "continue":
+            success = self._load_saved_game()
+            if success:
+                self.app_state = "playing"
+            else:
+                # Failed to load, stay in menu
+                print("Failed to load saved game, staying in menu.")
+        elif action == "quit":
+            self.running = False
+
+    # ==================== Playing State ====================
+
+    def _run_game(self):
+        """
+        Main game loop following the Input → Update → Render pattern.
         """
         # Check if AI should move first (if AI is white)
         if self.turn_controller._is_ai_turn():
             self.turn_controller._trigger_ai()
         
-        while self.running:
+        while self.running and self.app_state == "playing":
             # Input: Process all events
             self._handle_events()
             
@@ -71,25 +117,29 @@ class GameController:
             
             # Control frame rate
             self.clock.tick(FPS)
-        
-        # Clean up
-        pygame.quit()
     
     def _handle_events(self):
         """Process all input events from the player."""
         for event in pygame.event.get():
-            # Window close event
+            # Window close event — auto-save and quit
             if event.type == pygame.QUIT:
-                self.running = False
+                self._auto_save_and_quit()
                 return
             
             # Keyboard events
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    self.running = False
+                    # Open pause menu instead of quitting
+                    self._pause_game()
+                    return
                 elif event.key == pygame.K_r:
-                    # Reset game
-                    self._reset_game()
+                    # Only allow reset if game is over
+                    if self.game_state.is_game_over:
+                        self._start_new_game()
+            
+            # Don't process moves if game is over
+            if self.game_state.is_game_over:
+                continue
             
             # Mouse events (handled by InputHandler)
             action = self.input_handler.handle_event(event, self.game_state)
@@ -156,6 +206,9 @@ class GameController:
         
         # Log game over for debugging
         print(f"Game Over: {message} (Status: {status_type})")
+        
+        # Delete save file when game is over
+        SaveManager.delete_save()
 
     
     def _update_timers(self):
@@ -212,7 +265,100 @@ class GameController:
         
         # Update display
         pygame.display.flip()
+
+    # ==================== Pause State ====================
+
+    def _pause_game(self):
+        """Transition to pause state: stop clock and show pause menu."""
+        # Pause the clock
+        if self.turn_controller.clock_enabled:
+            self.turn_controller._stop_clock(self.turn_controller.current_player)
+        
+        self.app_state = "paused"
+
+    def _run_pause(self):
+        """Show the pause menu overlay and handle user action."""
+        action = self.pause_menu.show(
+            self.screen, self.clock,
+            self.game_state, self.renderer, self.input_handler
+        )
+        
+        if action == "resume":
+            # Resume clock and return to playing
+            if self.turn_controller.clock_enabled:
+                self.turn_controller._start_clock(self.turn_controller.current_player)
+            self.app_state = "playing"
+        elif action == "save_quit":
+            # Save game and return to menu
+            if not self.game_state.is_game_over:
+                SaveManager.save_game(self)
+            self.app_state = "menu"
+
+    # ==================== Save/Load ====================
+
+    def _auto_save_and_quit(self):
+        """Auto-save (if game is in progress) and quit the application."""
+        if not self.game_state.is_game_over:
+            # Stop clock before saving so time is accurate
+            if self.turn_controller.clock_enabled:
+                self.turn_controller._stop_clock(self.turn_controller.current_player)
+            SaveManager.save_game(self)
+            print("Game auto-saved on exit.")
+        self.running = False
+        self.app_state = "quit"
+
+    def _load_saved_game(self):
+        """
+        Load a saved game and restore state.
+        
+        Returns:
+            bool: True if load was successful
+        """
+        state = SaveManager.load_game()
+        if state is None:
+            return False
+        
+        try:
+            SaveManager.restore_game_state(self, state)
+            return True
+        except Exception as e:
+            print(f"Error restoring game state: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
     
+    def _restore_ai(self, ai_agent_type, ai_color):
+        """
+        Restore AI agent from saved type name.
+        
+        Args:
+            ai_agent_type: Class name of the AI agent (e.g., "MinimaxAgent")
+            ai_color: Color the AI plays ('white' or 'black')
+        """
+        from agents import RandomAgent, MinimaxAgent
+        
+        agent_map = {
+            "RandomAgent": lambda: RandomAgent("Easy Bot"),
+            "MinimaxAgent": lambda: MinimaxAgent(name="Minimax Bot", depth=3),
+        }
+        
+        factory = agent_map.get(ai_agent_type)
+        if factory:
+            agent = factory()
+            self.enable_ai(ai_color=ai_color, ai_agent=agent)
+            
+            # Check if it's AI's turn after restore
+            if self.turn_controller._is_ai_turn():
+                self.turn_controller._trigger_ai()
+
+    # ==================== Game Setup ====================
+    
+    def _start_new_game(self):
+        """Start a fresh new game."""
+        self._reset_game()
+        # Delete any existing save since we're starting fresh
+        SaveManager.delete_save()
+
     def _reset_game(self):
         """
         Reset the game to initial state.
@@ -243,11 +389,7 @@ class GameController:
                 self.turn_controller._trigger_ai()
         
         # Clear input handler state
-        self.input_handler.selected_square = None
-        self.input_handler.valid_moves = []
-        self.input_handler.dragging = False
-        self.input_handler.drag_piece = None
-        self.input_handler.drag_start = None
+        self.input_handler.reset()
     
     def enable_clock(self, time_per_player=300.0):
         """
