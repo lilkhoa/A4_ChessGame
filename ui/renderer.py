@@ -20,6 +20,15 @@ class Renderer:
         self.piece_ui = PieceUI()
         self.animation = Animation()
         self._setup_fonts()
+        
+        # Load sidebar icon
+        import os
+        try:
+            icon_path = os.path.join("assets", "images", "game-icon.png")
+            self.icon_img = pygame.image.load(icon_path).convert_alpha()
+            self.icon_img = pygame.transform.smoothscale(self.icon_img, (24, 24))
+        except Exception:
+            self.icon_img = None
 
     def _setup_fonts(self):
         """Initialize all fonts used in rendering."""
@@ -94,8 +103,14 @@ class Renderer:
         y = 15
 
         # Title
-        title = self.font_heading.render("♚ Chess Game", True, COLOR_TEXT_PRIMARY)
-        screen.blit(title, (x_base, y))
+        if self.icon_img:
+            title_text = self.font_heading.render("Chess Game", True, COLOR_TEXT_PRIMARY)
+            icon_y = y + (title_text.get_height() - self.icon_img.get_height()) // 2
+            screen.blit(self.icon_img, (x_base, icon_y))
+            screen.blit(title_text, (x_base + self.icon_img.get_width() + 8, y))
+        else:
+            title = self.font_heading.render("♚ Chess Game", True, COLOR_TEXT_PRIMARY)
+            screen.blit(title, (x_base, y))
         y += 32
 
         # Divider
@@ -144,12 +159,12 @@ class Renderer:
 
     def _draw_timers(self, screen, game_state, x, y, panel_w):
         """Draw player clocks."""
-        panel_h = 60
+        panel_h = 96
         panel_rect = pygame.Rect(x, y, panel_w, panel_h)
         pygame.draw.rect(screen, COLOR_PANEL_BG, panel_rect, border_radius=6)
 
         label = self.font_small.render("CLOCKS", True, COLOR_TEXT_SECONDARY)
-        screen.blit(label, (x + 10, y + 6))
+        screen.blit(label, (x + 10, y + 8))
 
         def format_time(seconds):
             m = int(max(0, seconds) // 60)
@@ -157,16 +172,32 @@ class Renderer:
             return f"{m:02d}:{s:02d}"
 
         # White time
+        w_active = game_state.current_turn == "white"
+        w_bg = (60, 60, 60) if w_active else (35, 33, 30)
+        w_rect = pygame.Rect(x + 10, y + 30, panel_w - 20, 26)
+        pygame.draw.rect(screen, w_bg, w_rect, border_radius=4)
+        
         w_time_str = format_time(game_state.white_time)
-        w_color = COLOR_TEXT_PRIMARY if game_state.current_turn == "white" else COLOR_TEXT_SECONDARY
+        if game_state.white_time <= 10.0 and game_state.white_time > 0:
+            w_color = COLOR_DANGER
+        else:
+            w_color = COLOR_TEXT_PRIMARY if w_active else COLOR_TEXT_SECONDARY
         w_text = self.font_body.render(f"W: {w_time_str}", True, w_color)
-        screen.blit(w_text, (x + 10, y + 30))
+        screen.blit(w_text, (x + 18, y + 33))
 
         # Black time
+        b_active = game_state.current_turn == "black"
+        b_bg = (60, 60, 60) if b_active else (35, 33, 30)
+        b_rect = pygame.Rect(x + 10, y + 62, panel_w - 20, 26)
+        pygame.draw.rect(screen, b_bg, b_rect, border_radius=4)
+
         b_time_str = format_time(game_state.black_time)
-        b_color = COLOR_TEXT_PRIMARY if game_state.current_turn == "black" else COLOR_TEXT_SECONDARY
+        if game_state.black_time <= 10.0 and game_state.black_time > 0:
+            b_color = COLOR_DANGER
+        else:
+            b_color = COLOR_TEXT_PRIMARY if b_active else COLOR_TEXT_SECONDARY
         b_text = self.font_body.render(f"B: {b_time_str}", True, b_color)
-        screen.blit(b_text, (x + str(panel_w // 2 + 10).isdigit() and panel_w // 2 + 10 or 100, y + 30))
+        screen.blit(b_text, (x + 18, y + 65))
 
         return y + panel_h
 
