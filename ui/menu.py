@@ -350,8 +350,3 @@ class MainMenu:
         lx = rect.centerx - label_surf.get_width() // 2
         ly = rect.centery - label_surf.get_height() // 2
         screen.blit(label_surf, (lx, ly))
-
-        # Disabled hint text
-        if not enabled and btn["action"] == "continue":
-            hint_surf = self.font_hint.render("No saved game", True, (80, 80, 80))
-            screen.blit(hint_surf, (rect.centerx - hint_surf.get_width() // 2, rect.bottom + 4))
