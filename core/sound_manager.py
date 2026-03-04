@@ -40,6 +40,7 @@ class SoundManager:
             'bg': 'bg.mp3',
             'capture': 'capture.mp3',
             'castle': 'castle.mp3',
+            'check': 'check.mp3',
             'game_end': 'game-end.mp3',
             'game_start': 'game-start.mp3',
             'illegal': 'illegal.mp3',
@@ -129,6 +130,10 @@ class SoundManager:
     def play_promotion(self):
         """Play sound when a pawn is promoted."""
         self._play_sound('promote')
+    
+    def play_check(self):
+        """Play sound when a check move is made."""
+        self._play_sound('check')
     
     # ==================== Timer Warning ====================
     

@@ -280,6 +280,10 @@ class SaveManager:
         ai_color = state.get("ai_color")
         if ai_agent_type and ai_color:
             game_controller._restore_ai(ai_agent_type, ai_color)
+            # Update input handler's reversed view if AI is white (player is black)
+            game_controller.input_handler.reversed_view = (ai_color == 'white')
+        else:
+            game_controller.input_handler.reversed_view = False
 
         # Clear input handler
         game_controller.input_handler.reset()

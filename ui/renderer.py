@@ -21,14 +21,17 @@ class Renderer:
         self.animation = Animation()
         self._setup_fonts()
         
-        # Load sidebar icon
+        # Load avatars
         import os
+        self.avatar_player = None
+        self.avatar_computer = None
         try:
-            icon_path = os.path.join("assets", "images", "game-icon.png")
-            self.icon_img = pygame.image.load(icon_path).convert_alpha()
-            self.icon_img = pygame.transform.smoothscale(self.icon_img, (24, 24))
-        except Exception:
-            self.icon_img = None
+            player_path = os.path.join("assets", "images", "avatar", "player.jpg")
+            computer_path = os.path.join("assets", "images", "avatar", "computer.jpg")
+            self.avatar_player = pygame.image.load(player_path).convert()
+            self.avatar_computer = pygame.image.load(computer_path).convert()
+        except Exception as e:
+            print(f"Warning: Could not load avatars: {e}")
 
     def _setup_fonts(self):
         """Initialize all fonts used in rendering."""
@@ -47,7 +50,7 @@ class Renderer:
             self.font_large = pygame.font.Font(None, 48)
             self.font_overlay = pygame.font.Font(None, 26)
 
-    def draw(self, screen, game_state, input_handler):
+    def draw(self, screen, game_state, input_handler, game_controller=None):
         """
         Draw the complete game frame.
 
@@ -55,9 +58,17 @@ class Renderer:
             screen: Pygame display surface
             game_state: Current GameState object
             input_handler: InputHandler instance for selection/drag state
+            game_controller: GameController instance for AI info (optional)
         """
+        # Determine if board should be reversed (player is black vs AI)
+        reversed_view = False
+        if game_controller and hasattr(game_controller, 'ai_agent') and game_controller.ai_agent:
+            # If AI is white, then human is black, so reverse the board
+            if game_controller.ai_color == 'white':
+                reversed_view = True
+        
         # Draw the chessboard
-        self.board_ui.draw_board(screen)
+        self.board_ui.draw_board(screen, reversed_view)
 
         # Draw highlights
         last_move = game_state.move_log[-1] if game_state.move_log else None
@@ -69,12 +80,13 @@ class Renderer:
             valid_moves=input_handler.valid_moves,
             last_move=last_move,
             king_in_check_pos=king_check_pos,
-            board_grid=game_state.board
+            board_grid=game_state.board,
+            reversed_view=reversed_view
         )
 
         # Draw pieces (skip dragged piece)
         skip = input_handler.drag_start if input_handler.dragging else None
-        self.piece_ui.draw_pieces(screen, game_state.board, skip_pos=skip)
+        self.piece_ui.draw_pieces(screen, game_state.board, skip_pos=skip, reversed_view=reversed_view)
 
         # Draw dragged piece following mouse
         if input_handler.dragging and input_handler.drag_piece:
@@ -82,21 +94,253 @@ class Renderer:
                 screen, input_handler.drag_piece, input_handler.mouse_pos
             )
 
-        # Draw sidebar
-        self.draw_sidebar(screen, game_state)
+        # Draw new player panels sidebar
+        self.draw_player_panels(screen, game_state, game_controller)
 
         # Draw game-over overlay
         if game_state.is_checkmate or game_state.is_draw or game_state.timeout_winner:
             self.draw_game_over_overlay(screen, game_state)
 
-    def draw_sidebar(self, screen, game_state):
-        """Draw the status sidebar panel."""
+    def draw_player_panels(self, screen, game_state, game_controller):
+        """Draw the new player panel design in the sidebar."""
         sidebar_rect = pygame.Rect(BOARD_WIDTH, 0, SIDEBAR_WIDTH, WINDOW_HEIGHT)
         pygame.draw.rect(screen, COLOR_SIDEBAR_BG, sidebar_rect)
+        
+        # Determine player info
+        ai_color = None
+        ai_name = None
+        is_human_vs_human = True
+        reversed_view = False
+        
+        if game_controller and hasattr(game_controller, 'ai_agent') and game_controller.ai_agent:
+            ai_color = game_controller.ai_color
+            ai_name = game_controller.ai_agent.name
+            is_human_vs_human = False
+            # If AI is white, human is black, so reverse the board view
+            if ai_color == 'white':
+                reversed_view = True
+        
+        # Get captured pieces
+        white_captured, black_captured = self._get_captured_pieces(game_state)
+        
+        # Calculate material advantage
+        white_material = self._calculate_material_value(white_captured)
+        black_material = self._calculate_material_value(black_captured)
+        
+        # Calculate panel positions
+        panel_height = 140
+        spacing = 20
+        top_panel_y = spacing
+        bottom_panel_y = WINDOW_HEIGHT - panel_height - spacing
+        
+        # When reversed (playing as black), show black panel at bottom
+        if reversed_view:
+            # Black panel at bottom (player's side)
+            black_avatar = self.avatar_player  # Human is black
+            black_name = "Player"
+            black_active = game_state.current_turn == 'black'
+            self._draw_player_panel(
+                screen,
+                x=BOARD_WIDTH,
+                y=bottom_panel_y,
+                width=SIDEBAR_WIDTH,
+                height=panel_height,
+                avatar=black_avatar,
+                player_name=black_name,
+                color='black',
+                time_remaining=game_state.black_time,
+                captured_pieces=black_captured,  # Black captured white pieces
+                material_advantage=black_material - white_material,
+                is_active=black_active
+            )
+            
+            # White panel at top (AI's side)
+            white_avatar = self.avatar_computer  # AI is white
+            white_name = ai_name
+            white_active = game_state.current_turn == 'white'
+            self._draw_player_panel(
+                screen,
+                x=BOARD_WIDTH,
+                y=top_panel_y,
+                width=SIDEBAR_WIDTH,
+                height=panel_height,
+                avatar=white_avatar,
+                player_name=white_name,
+                color='white',
+                time_remaining=game_state.white_time,
+                captured_pieces=white_captured,  # White captured black pieces
+                material_advantage=white_material - black_material,
+                is_active=white_active
+            )
+        else:
+            # Normal view: White at bottom
+            white_avatar = self.avatar_computer if ai_color == 'white' else self.avatar_player
+            white_name = ai_name if ai_color == 'white' else ("Player 2" if is_human_vs_human else "Player")
+            white_active = game_state.current_turn == 'white'
+            self._draw_player_panel(
+                screen,
+                x=BOARD_WIDTH,
+                y=bottom_panel_y,
+                width=SIDEBAR_WIDTH,
+                height=panel_height,
+                avatar=white_avatar,
+                player_name=white_name,
+                color='white',
+                time_remaining=game_state.white_time,
+                captured_pieces=white_captured,  # White captured black pieces
+                material_advantage=white_material - black_material,
+                is_active=white_active
+            )
+            
+            # Black panel at top
+            black_avatar = self.avatar_computer if ai_color == 'black' else self.avatar_player
+            black_name = ai_name if ai_color == 'black' else ("Player 1" if is_human_vs_human else "Player")
+            black_active = game_state.current_turn == 'black'
+            self._draw_player_panel(
+                screen,
+                x=BOARD_WIDTH,
+                y=top_panel_y,
+                width=SIDEBAR_WIDTH,
+                height=panel_height,
+                avatar=black_avatar,
+                player_name=black_name,
+                color='black',
+                time_remaining=game_state.black_time,
+                captured_pieces=black_captured,  # Black captured white pieces
+                material_advantage=black_material - white_material,
+                is_active=black_active
+            )
+    
+    def _draw_player_panel(self, screen, x, y, width, height, avatar, player_name, 
+                          color, time_remaining, captured_pieces, material_advantage, is_active):
+        """Draw a single player panel."""
+        # Panel background
+        panel_rect = pygame.Rect(x + 10, y, width - 20, height)
+        
+        # Active player highlight/glow
+        if is_active:
+            # Glowing border
+            glow_color = (129, 182, 76, 200)  # COLOR_ACCENT with alpha
+            glow_surface = pygame.Surface((panel_rect.width + 6, panel_rect.height + 6), pygame.SRCALPHA)
+            pygame.draw.rect(glow_surface, glow_color, glow_surface.get_rect(), border_radius=8, width=3)
+            screen.blit(glow_surface, (panel_rect.x - 3, panel_rect.y - 3))
+            bg_color = (65, 63, 60)
+        else:
+            bg_color = COLOR_PANEL_BG
+        
+        pygame.draw.rect(screen, bg_color, panel_rect, border_radius=6)
+        
+        # Avatar (top left)
+        avatar_size = 50
+        avatar_x = panel_rect.x + 10
+        avatar_y = panel_rect.y + 10
+        if avatar:
+            avatar_scaled = pygame.transform.smoothscale(avatar, (avatar_size, avatar_size))
+            screen.blit(avatar_scaled, (avatar_x, avatar_y))
+        else:
+            # Fallback: draw colored circle
+            circle_color = (255, 255, 255) if color == 'white' else (50, 50, 50)
+            pygame.draw.circle(screen, circle_color, (avatar_x + avatar_size//2, avatar_y + avatar_size//2), avatar_size//2)
+        
+        # Player name (next to avatar)
+        name_x = avatar_x + avatar_size + 10
+        name_y = avatar_y + 5
+        name_text = self.font_body.render(player_name, True, COLOR_TEXT_PRIMARY)
+        screen.blit(name_text, (name_x, name_y))
+        
+        # Timer (right side, same row as name)
+        timer_text = self._format_time(time_remaining)
+        if time_remaining <= 10.0 and time_remaining > 0:
+            timer_color = COLOR_DANGER
+        else:
+            timer_color = COLOR_TEXT_PRIMARY
+        time_surface = self.font_heading.render(timer_text, True, timer_color)
+        time_x = panel_rect.x + panel_rect.width - time_surface.get_width() - 10
+        time_y = avatar_y
+        
+        # Timer background
+        timer_bg_rect = pygame.Rect(time_x - 5, time_y - 2, time_surface.get_width() + 10, time_surface.get_height() + 4)
+        pygame.draw.rect(screen, (40, 38, 35), timer_bg_rect, border_radius=4)
+        screen.blit(time_surface, (time_x, time_y))
+        
+        # Captured pieces display (below avatar)
+        captured_y = avatar_y + avatar_size + 15
+        self._draw_captured_pieces(screen, panel_rect.x + 10, captured_y, captured_pieces, material_advantage, panel_rect.width - 20)
+    
+    def _draw_captured_pieces(self, screen, x, y, captured_pieces, material_advantage, max_width):
+        """Draw captured pieces with material advantage."""
+        piece_size = 24
+        spacing = 4
+        current_x = x
+        
+        # Order: Queen, Rook, Bishop, Knight, Pawn
+        piece_order = ['queen', 'rook', 'bishop', 'knight', 'pawn']
+        
+        for piece_name in piece_order:
+            count = captured_pieces.get(piece_name, 0)
+            for _ in range(count):
+                if current_x + piece_size > x + max_width - 30:  # Leave space for advantage
+                    break
+                
+                # Draw small piece icon
+                piece_sprite = self.piece_ui.get_small_piece_sprite(piece_name, captured_pieces.get('_color', 'white'))
+                if piece_sprite:
+                    piece_scaled = pygame.transform.smoothscale(piece_sprite, (piece_size, piece_size))
+                    screen.blit(piece_scaled, (current_x, y))
+                else:
+                    # Fallback: draw colored square
+                    pygame.draw.rect(screen, (100, 100, 100), (current_x, y, piece_size, piece_size))
+                
+                current_x += piece_size + spacing
+        
+        # Material advantage (only if positive)
+        if material_advantage > 0:
+            advantage_text = f"+{material_advantage}"
+            advantage_surface = self.font_body.render(advantage_text, True, COLOR_ACCENT)
+            advantage_x = x + max_width - advantage_surface.get_width()
+            screen.blit(advantage_surface, (advantage_x, y + 2))
+    
+    def _get_captured_pieces(self, game_state):
+        """
+        Parse move log to get captured pieces for each player.
+        Returns: (white_captured, black_captured) - dicts with piece counts and color
+        """
+        white_captured = {'_color': 'black', 'queen': 0, 'rook': 0, 'bishop': 0, 'knight': 0, 'pawn': 0}
+        black_captured = {'_color': 'white', 'queen': 0, 'rook': 0, 'bishop': 0, 'knight': 0, 'pawn': 0}
+        
+        for move_entry in game_state.move_log:
+            captured = move_entry.get('captured')
+            if captured:
+                piece_name = captured.name
+                piece_color = captured.color
+                
+                if piece_color == 'black':
+                    # White captured a black piece
+                    white_captured[piece_name] = white_captured.get(piece_name, 0) + 1
+                else:
+                    # Black captured a white piece
+                    black_captured[piece_name] = black_captured.get(piece_name, 0) + 1
+        
+        return white_captured, black_captured
+    
+    def _calculate_material_value(self, captured_pieces):
+        """Calculate total material value of captured pieces."""
+        values = {'queen': 9, 'rook': 5, 'bishop': 3, 'knight': 3, 'pawn': 1}
+        total = 0
+        for piece_name, count in captured_pieces.items():
+            if piece_name != '_color':
+                total += values.get(piece_name, 0) * count
+        return total
+    
+    def _format_time(self, seconds):
+        """Format time as MM:SS."""
+        m = int(max(0, seconds) // 60)
+        s = int(max(0, seconds) % 60)
+        return f"{m:02d}:{s:02d}"
 
-        # Decorative top accent line
-        pygame.draw.rect(screen, COLOR_ACCENT,
-                         pygame.Rect(BOARD_WIDTH, 0, SIDEBAR_WIDTH, 3))
+    def draw_sidebar(self, screen, game_state):
+        """Deprecated - kept for compatibility. Use draw_player_panels instead."""
+        pass
 
         x_base = BOARD_WIDTH + 12
         panel_w = SIDEBAR_WIDTH - 24
@@ -109,7 +353,7 @@ class Renderer:
             screen.blit(self.icon_img, (x_base, icon_y))
             screen.blit(title_text, (x_base + self.icon_img.get_width() + 8, y))
         else:
-            title = self.font_heading.render("♚ Chess Game", True, COLOR_TEXT_PRIMARY)
+            title = self.font_heading.render("Chess Game", True, COLOR_TEXT_PRIMARY)
             screen.blit(title, (x_base, y))
         y += 32
 
@@ -136,145 +380,6 @@ class Renderer:
 
         # Controls help
         self._draw_controls_help(screen, x_base, WINDOW_HEIGHT - 100)
-
-    def _draw_turn_panel(self, screen, game_state, x, y, panel_w):
-        """Draw the current turn indicator panel."""
-        panel_h = 52
-        panel_rect = pygame.Rect(x, y, panel_w, panel_h)
-        pygame.draw.rect(screen, COLOR_PANEL_BG, panel_rect, border_radius=6)
-
-        label = self.font_small.render("TURN", True, COLOR_TEXT_SECONDARY)
-        screen.blit(label, (x + 10, y + 6))
-
-        turn = game_state.current_turn
-        circle_color = (255, 255, 255) if turn == "white" else (50, 50, 50)
-        circle_border = (180, 180, 180) if turn == "white" else (100, 100, 100)
-        pygame.draw.circle(screen, circle_color, (x + 20, y + 34), 8)
-        pygame.draw.circle(screen, circle_border, (x + 20, y + 34), 8, 2)
-
-        turn_text = self.font_body.render(turn.capitalize(), True, COLOR_TEXT_PRIMARY)
-        screen.blit(turn_text, (x + 34, y + 26))
-
-        return y + panel_h
-
-    def _draw_timers(self, screen, game_state, x, y, panel_w):
-        """Draw player clocks."""
-        panel_h = 96
-        panel_rect = pygame.Rect(x, y, panel_w, panel_h)
-        pygame.draw.rect(screen, COLOR_PANEL_BG, panel_rect, border_radius=6)
-
-        label = self.font_small.render("CLOCKS", True, COLOR_TEXT_SECONDARY)
-        screen.blit(label, (x + 10, y + 8))
-
-        def format_time(seconds):
-            m = int(max(0, seconds) // 60)
-            s = int(max(0, seconds) % 60)
-            return f"{m:02d}:{s:02d}"
-
-        # White time
-        w_active = game_state.current_turn == "white"
-        w_bg = (60, 60, 60) if w_active else (35, 33, 30)
-        w_rect = pygame.Rect(x + 10, y + 30, panel_w - 20, 26)
-        pygame.draw.rect(screen, w_bg, w_rect, border_radius=4)
-        
-        w_time_str = format_time(game_state.white_time)
-        if game_state.white_time <= 10.0 and game_state.white_time > 0:
-            w_color = COLOR_DANGER
-        else:
-            w_color = COLOR_TEXT_PRIMARY if w_active else COLOR_TEXT_SECONDARY
-        w_text = self.font_body.render(f"W: {w_time_str}", True, w_color)
-        screen.blit(w_text, (x + 18, y + 33))
-
-        # Black time
-        b_active = game_state.current_turn == "black"
-        b_bg = (60, 60, 60) if b_active else (35, 33, 30)
-        b_rect = pygame.Rect(x + 10, y + 62, panel_w - 20, 26)
-        pygame.draw.rect(screen, b_bg, b_rect, border_radius=4)
-
-        b_time_str = format_time(game_state.black_time)
-        if game_state.black_time <= 10.0 and game_state.black_time > 0:
-            b_color = COLOR_DANGER
-        else:
-            b_color = COLOR_TEXT_PRIMARY if b_active else COLOR_TEXT_SECONDARY
-        b_text = self.font_body.render(f"B: {b_time_str}", True, b_color)
-        screen.blit(b_text, (x + 18, y + 65))
-
-        return y + panel_h
-
-    def _draw_move_info(self, screen, game_state, x, y, panel_w):
-        """Draw move count information."""
-        panel_h = 48
-        panel_rect = pygame.Rect(x, y, panel_w, panel_h)
-        pygame.draw.rect(screen, COLOR_PANEL_BG, panel_rect, border_radius=6)
-
-        label = self.font_small.render("MOVES", True, COLOR_TEXT_SECONDARY)
-        screen.blit(label, (x + 10, y + 6))
-
-        move_count = len(game_state.move_log)
-        count_text = self.font_body.render(str(move_count), True, COLOR_ACCENT)
-        screen.blit(count_text, (x + 10, y + 24))
-
-        turn_num = (move_count // 2) + 1
-        turn_label = self.font_small.render(f"Turn {turn_num}", True, COLOR_TEXT_SECONDARY)
-        screen.blit(turn_label, (x + 60, y + 26))
-
-        return y + panel_h
-
-    def _draw_status_info(self, screen, game_state, x, y, panel_w):
-        """Draw game status (check, checkmate, stalemate)."""
-        panel_h = 48
-        panel_rect = pygame.Rect(x, y, panel_w, panel_h)
-        pygame.draw.rect(screen, COLOR_PANEL_BG, panel_rect, border_radius=6)
-
-        label = self.font_small.render("STATUS", True, COLOR_TEXT_SECONDARY)
-        screen.blit(label, (x + 10, y + 6))
-
-        if game_state.timeout_winner:
-            status = f"Timeout! {game_state.timeout_winner.capitalize()} wins"
-            color = COLOR_DANGER
-        elif game_state.is_checkmate:
-            winner = "Black" if game_state.current_turn == "white" else "White"
-            status = f"Checkmate! {winner} wins"
-            color = COLOR_DANGER
-        elif game_state.is_draw:
-            # Show specific draw reason
-            if game_state.draw_reason == 'stalemate':
-                status = "Draw (Stalemate)"
-            elif game_state.draw_reason == 'threefold_repetition':
-                status = "Draw (3-fold rep.)"
-            elif game_state.draw_reason == 'insufficient_material':
-                status = "Draw (Insuff. mat.)"
-            elif game_state.draw_reason == 'fifty_move_rule':
-                status = "Draw (50-move rule)"
-            else:
-                status = "Draw"
-            color = (255, 193, 37)
-        else:
-            status = "In progress"
-            color = COLOR_ACCENT
-
-        status_text = self.font_small.render(status, True, color)
-        screen.blit(status_text, (x + 10, y + 26))
-
-        return y + panel_h
-
-    def _draw_controls_help(self, screen, x, y):
-        """Draw keyboard shortcut help at the bottom of the sidebar."""
-        controls = [
-            ("ESC", "Pause / Menu"),
-        ]
-        
-        label = self.font_small.render("CONTROLS", True, COLOR_TEXT_SECONDARY)
-        screen.blit(label, (x, y))
-        y += 20
-
-        for key, desc in controls:
-            key_surface = self.font_small.render(f"[{key}]", True, COLOR_ACCENT)
-            desc_surface = self.font_small.render(f"  {desc}", True, COLOR_TEXT_SECONDARY)
-            screen.blit(key_surface, (x, y))
-            screen.blit(desc_surface, (x + key_surface.get_width(), y))
-            y += 22
-
     def draw_game_over_overlay(self, screen, game_state):
         """Draw a semi-transparent overlay with game over results."""
         overlay = pygame.Surface((BOARD_WIDTH, BOARD_HEIGHT), pygame.SRCALPHA)
