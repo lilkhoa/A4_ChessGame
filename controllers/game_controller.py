@@ -93,7 +93,8 @@ class GameController:
         if action == "new_game":
             mode = payload.get("mode", "2p")
             difficulty = payload.get("difficulty")
-            self._start_new_game(mode, difficulty)
+            player_color = payload.get("player_color", 'white')
+            self._start_new_game(mode, difficulty, player_color)
             self.app_state = "playing"
         elif action == "continue":
             success = self._load_saved_game()
@@ -155,7 +156,7 @@ class GameController:
                 continue
             
             # Mouse events (handled by InputHandler)
-            action = self.input_handler.handle_event(event, self.game_state)
+            action = self.input_handler.handle_event(event, self.game_state, self.turn_controller)
             
             if action is not None:
                 self._process_action(action)
@@ -434,13 +435,15 @@ class GameController:
 
     # ==================== Game Setup ====================
     
-    def _start_new_game(self, mode=None, difficulty=None):
+    def _start_new_game(self, mode=None, difficulty=None, player_color="white"):
         """Start a fresh new game."""
         
         # If explicitly passed from menu, update the controller's AI settings
         if mode == "1p" and difficulty:
             from agents import RandomAgent, MinimaxAgent
-            self.ai_color = 'black' # Default AI to black
+            # Determine AI color (opposite of player color)
+            self.ai_color = 'black' if player_color == 'white' else 'white'
+            
             if difficulty == "easy":
                 self.ai_agent = RandomAgent("Easy Bot")
             elif difficulty == "medium":

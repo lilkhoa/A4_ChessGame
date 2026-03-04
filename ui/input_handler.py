@@ -17,13 +17,14 @@ class InputHandler:
         self.drag_start = None        # (row, col) where drag started
         self.mouse_pos = (0, 0)       # Current mouse position for drag rendering
 
-    def handle_event(self, event, game_state):
+    def handle_event(self, event, game_state, turn_controller=None):
         """
         Process a Pygame event and return an action dict if a move is attempted.
 
         Args:
             event: A pygame.event.Event
             game_state: The current GameState object
+            turn_controller: Optional. The current TurnController object.
 
         Returns:
             dict or None:
@@ -32,19 +33,24 @@ class InputHandler:
                 None if no actionable event occurred
         """
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            return self._handle_mouse_down(event.pos, game_state)
+            return self._handle_mouse_down(event.pos, game_state, turn_controller)
 
         elif event.type == pygame.MOUSEMOTION:
             self.mouse_pos = event.pos
             return None
 
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-            return self._handle_mouse_up(event.pos, game_state)
+            return self._handle_mouse_up(event.pos, game_state, turn_controller)
 
         return None
 
-    def _handle_mouse_down(self, mouse_pos, game_state):
+    def _handle_mouse_down(self, mouse_pos, game_state, turn_controller=None):
         """Handle left mouse button press."""
+        # Block input if it's the AI's turn
+        if turn_controller and turn_controller._is_ai_turn():
+            self._clear_selection()
+            return {"type": "deselect"}
+            
         clicked_sq = BoardUI.get_square_from_pos(mouse_pos)
 
         if clicked_sq is None:
@@ -82,8 +88,14 @@ class InputHandler:
                 self._select_piece(clicked_sq, piece, game_state)
             return None
 
-    def _handle_mouse_up(self, mouse_pos, game_state):
+    def _handle_mouse_up(self, mouse_pos, game_state, turn_controller=None):
         """Handle left mouse button release (for drag-and-drop)."""
+        # Block input if it's the AI's turn
+        if turn_controller and turn_controller._is_ai_turn():
+            self.dragging = False
+            self.drag_piece = None
+            return None
+            
         if not self.dragging:
             return None
 
