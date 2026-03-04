@@ -77,10 +77,17 @@ class GameController:
     def _run_menu(self):
         """Show the main menu and handle user choice."""
         has_save = SaveManager.has_save()
-        action = self.main_menu.show(self.screen, self.clock, has_save=has_save)
+        payload = self.main_menu.show(self.screen, self.clock, has_save=has_save)
+        
+        if not payload:
+            return
+
+        action = payload.get("action")
         
         if action == "new_game":
-            self._start_new_game()
+            mode = payload.get("mode", "2p")
+            difficulty = payload.get("difficulty")
+            self._start_new_game(mode, difficulty)
             self.app_state = "playing"
         elif action == "continue":
             success = self._load_saved_game()
@@ -353,8 +360,24 @@ class GameController:
 
     # ==================== Game Setup ====================
     
-    def _start_new_game(self):
+    def _start_new_game(self, mode=None, difficulty=None):
         """Start a fresh new game."""
+        
+        # If explicitly passed from menu, update the controller's AI settings
+        if mode == "1p" and difficulty:
+            from agents import RandomAgent, MinimaxAgent
+            self.ai_color = 'black' # Default AI to black
+            if difficulty == "easy":
+                self.ai_agent = RandomAgent("Easy Bot")
+            elif difficulty == "medium":
+                self.ai_agent = MinimaxAgent(name="Medium Bot", depth=2)
+            elif difficulty == "hard":
+                self.ai_agent = MinimaxAgent(name="Hard Bot", depth=3)
+        elif mode == "2p":
+            # Clear AI for local multiplayer
+            self.ai_agent = None
+            self.ai_color = None
+
         self._reset_game()
         # Delete any existing save since we're starting fresh
         SaveManager.delete_save()

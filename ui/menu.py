@@ -20,6 +20,7 @@ class MainMenu:
         self.buttons = []
         self.selected_index = 0
         self.hover_index = -1
+        self.state = "main"
 
     def _setup_fonts(self):
         """Initialize fonts for the menu."""
@@ -44,8 +45,9 @@ class MainMenu:
             has_save: Whether a save file exists (enables Continue)
 
         Returns:
-            str: "new_game", "continue", or "quit"
+            dict: Payload containing selected action, mode, and difficulty
         """
+        self.state = "main"
         self._build_buttons(has_save)
 
         while True:
@@ -54,11 +56,14 @@ class MainMenu:
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    return "quit"
+                    return {"action": "quit"}
 
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
-                        return "quit"
+                        if self.state == "main":
+                            return {"action": "quit"}
+                        else:
+                            self._handle_action("back", has_save)
                     elif event.key == pygame.K_UP:
                         self._move_selection(-1)
                     elif event.key == pygame.K_DOWN:
@@ -66,12 +71,16 @@ class MainMenu:
                     elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
                         action = self.buttons[self.selected_index]["action"]
                         if self.buttons[self.selected_index]["enabled"]:
-                            return action
+                            payload = self._handle_action(action, has_save)
+                            if payload:
+                                return payload
 
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     for i, btn in enumerate(self.buttons):
                         if btn["enabled"] and btn["rect"].collidepoint(mouse_pos):
-                            return btn["action"]
+                            payload = self._handle_action(btn["action"], has_save)
+                            if payload:
+                                return payload
 
             # Update hover state
             for i, btn in enumerate(self.buttons):
@@ -82,6 +91,35 @@ class MainMenu:
             pygame.display.flip()
             clock.tick(60)
 
+    def _handle_action(self, action, has_save):
+        """Handle an action from a button press, updating state or returning payload."""
+        if self.state == "main":
+            if action == "new_game":
+                self.state = "mode_select"
+                self._build_buttons(has_save)
+                return None
+            else:
+                return {"action": action}
+        elif self.state == "mode_select":
+            if action == "back":
+                self.state = "main"
+                self._build_buttons(has_save)
+                return None
+            elif action == "1p":
+                self.state = "difficulty_select"
+                self._build_buttons(has_save)
+                return None
+            elif action == "2p":
+                return {"action": "new_game", "mode": "2p", "difficulty": None}
+        elif self.state == "difficulty_select":
+            if action == "back":
+                self.state = "mode_select"
+                self._build_buttons(has_save)
+                return None
+            else:
+                return {"action": "new_game", "mode": "1p", "difficulty": action}
+        return None
+
     def _build_buttons(self, has_save):
         """Create button definitions with positions."""
         btn_w = 280
@@ -89,31 +127,80 @@ class MainMenu:
         cx = WINDOW_WIDTH // 2
         start_y = WINDOW_HEIGHT // 2 - 10
 
-        self.buttons = [
-            {
-                "label": "Continue",
-                "action": "continue",
-                "enabled": has_save,
-                "rect": pygame.Rect(cx - btn_w // 2, start_y, btn_w, btn_h),
-            },
-            {
-                "label": "New Game",
-                "action": "new_game",
-                "enabled": True,
-                "rect": pygame.Rect(cx - btn_w // 2, start_y + 72, btn_w, btn_h),
-            },
-            {
-                "label": "Quit",
-                "action": "quit",
-                "enabled": True,
-                "rect": pygame.Rect(cx - btn_w // 2, start_y + 144, btn_w, btn_h),
-            },
-        ]
-
-        # Default selection to first enabled button
-        self.selected_index = 0
-        if not has_save:
-            self.selected_index = 1
+        if self.state == "main":
+            self.buttons = [
+                {
+                    "label": "Continue",
+                    "action": "continue",
+                    "enabled": has_save,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y, btn_w, btn_h),
+                },
+                {
+                    "label": "New Game",
+                    "action": "new_game",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y + 72, btn_w, btn_h),
+                },
+                {
+                    "label": "Quit",
+                    "action": "quit",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y + 144, btn_w, btn_h),
+                },
+            ]
+            self.selected_index = 0 if has_save else 1
+            
+        elif self.state == "mode_select":
+            self.buttons = [
+                {
+                    "label": "1 Player (vs AI)",
+                    "action": "1p",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y, btn_w, btn_h),
+                },
+                {
+                    "label": "2 Players",
+                    "action": "2p",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y + 72, btn_w, btn_h),
+                },
+                {
+                    "label": "Back",
+                    "action": "back",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y + 144, btn_w, btn_h),
+                },
+            ]
+            self.selected_index = 0
+            
+        elif self.state == "difficulty_select":
+            self.buttons = [
+                {
+                    "label": "Easy",
+                    "action": "easy",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y - 36, btn_w, btn_h),
+                },
+                {
+                    "label": "Medium",
+                    "action": "medium",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y + 36, btn_w, btn_h),
+                },
+                {
+                    "label": "Hard",
+                    "action": "hard",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y + 108, btn_w, btn_h),
+                },
+                {
+                    "label": "Back",
+                    "action": "back",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y + 180, btn_w, btn_h),
+                },
+            ]
+            self.selected_index = 0
 
     def _move_selection(self, direction):
         """Move keyboard selection up or down, skipping disabled buttons."""
@@ -140,8 +227,14 @@ class MainMenu:
         screen.blit(title_surf, (cx - title_surf.get_width() // 2, 100))
 
         # -- Subtitle --
+        subtitle_text = "A classic chess experience"
+        if self.state == "mode_select":
+            subtitle_text = "Select Game Mode"
+        elif self.state == "difficulty_select":
+            subtitle_text = "Select AI Difficulty"
+
         subtitle_surf = self.font_subtitle.render(
-            "A classic chess experience", True, COLOR_TEXT_SECONDARY
+            subtitle_text, True, COLOR_TEXT_SECONDARY
         )
         screen.blit(subtitle_surf, (cx - subtitle_surf.get_width() // 2, 170))
 
