@@ -3,6 +3,7 @@ from core.board import Board
 from core.game_state import GameState
 from core.rules import Rules
 from core.save_manager import SaveManager
+from core.sound_manager import SoundManager
 from controllers.turn_controller import TurnController
 from ui.renderer import Renderer
 from ui.input_handler import InputHandler
@@ -41,6 +42,10 @@ class GameController:
         self.main_menu = MainMenu()
         self.pause_menu = PauseMenu()
         
+        # Initialize Sound Manager
+        self.sound_manager = SoundManager()
+        self.sound_manager.play_background_music()
+        
         # Game state flags
         self.running = True
         
@@ -70,6 +75,7 @@ class GameController:
                 self._run_pause()
         
         # Clean up
+        self.sound_manager.cleanup()
         pygame.quit()
 
     # ==================== Menu State ====================
@@ -183,10 +189,18 @@ class GameController:
             start_pos: (row, col) starting position
             end_pos: (row, col) ending position
         """
+        # Check the last move to determine sound to play
+        last_move_index = len(self.game_state.move_log)
+        
         # Ask the core to process the move
         move_successful = self.game_state.process_move(start_pos, end_pos)
         
         if move_successful:
+            # Play appropriate sound based on move type
+            if last_move_index < len(self.game_state.move_log):
+                last_move = self.game_state.move_log[-1]
+                self._play_move_sound(last_move)
+            
             # Update position history BEFORE switching turns for threefold repetition
             self.rules.update_position_history(self.board)
             
@@ -200,6 +214,9 @@ class GameController:
             # Check if it's AI's turn (for future AI implementation)
             if turn_result.get('ai_turn', False):
                 self._trigger_ai_move()
+        else:
+            # Play illegal move sound
+            self.sound_manager.play_illegal_move()
     
     def _handle_game_over(self, game_status):
         """
@@ -211,11 +228,59 @@ class GameController:
         status_type = game_status.get('status', 'unknown')
         message = game_status.get('message', 'Game over')
         
+        # Play game end sound
+        self.sound_manager.play_game_end()
+        
         # Log game over for debugging
         print(f"Game Over: {message} (Status: {status_type})")
         
         # Delete save file when game is over
         SaveManager.delete_save()
+    
+    def _play_move_sound(self, last_move_dict):
+        """
+        Play the appropriate sound based on the move type.
+        
+        Args:
+            last_move_dict: Dictionary containing move information from move_log
+        """
+        # Get the piece that was moved
+        piece = last_move_dict.get('piece')
+        start = last_move_dict.get('start')
+        end = last_move_dict.get('end')
+        captured = last_move_dict.get('captured')
+        
+        # Check for promotion (pawn reaching the last rank)
+        if piece and piece.name == 'pawn':
+            end_row = end[0]
+            if end_row == 0 or end_row == 7:
+                self.sound_manager.play_promotion()
+                return
+        
+        # Check for castling (king moving 2 squares horizontally)
+        if piece and piece.name == 'king':
+            start_col = start[1]
+            end_col = end[1]
+            if abs(end_col - start_col) == 2:
+                self.sound_manager.play_castle()
+                return
+        
+        # Check for capture
+        if captured is not None:
+            self.sound_manager.play_capture()
+            return
+        
+        # Check for en passant (pawn diagonal move with no piece captured at destination)
+        if piece and piece.name == 'pawn':
+            start_col = start[1]
+            end_col = end[1]
+            if start_col != end_col and captured is None:
+                # This is en passant
+                self.sound_manager.play_capture()
+                return
+        
+        # Normal move
+        self.sound_manager.play_move()
 
     
     def _update_timers(self):
@@ -225,9 +290,18 @@ class GameController:
         This syncs the dynamic timer values so the renderer can display them.
         """
         if self.turn_controller.clock_enabled:
-            self.game_state.white_time = self.turn_controller.get_time_remaining('white')
-            self.game_state.black_time = self.turn_controller.get_time_remaining('black')
+            white_time = self.turn_controller.get_time_remaining('white')
+            black_time = self.turn_controller.get_time_remaining('black')
+            
+            self.game_state.white_time = white_time
+            self.game_state.black_time = black_time
             self.game_state.timeout_winner = self.turn_controller.winner if self.turn_controller.game_over_reason == 'timeout' else None
+            
+            # Play warning sound when time drops below 60 seconds
+            if white_time < 60 and white_time > 0:
+                self.sound_manager.play_ten_second_warning('white')
+            if black_time < 60 and black_time > 0:
+                self.sound_manager.play_ten_second_warning('black')
     
     def _check_and_execute_ai_move(self):
         """
@@ -381,6 +455,11 @@ class GameController:
         self._reset_game()
         # Delete any existing save since we're starting fresh
         SaveManager.delete_save()
+        
+        # Play game start sound
+        self.sound_manager.play_game_start()
+        # Reset time warning tracking
+        self.sound_manager.reset_time_warnings()
 
     def _reset_game(self):
         """

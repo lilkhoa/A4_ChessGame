@@ -1,0 +1,37 @@
+[project]
+name = "a4-chess-game"
+version = "0.1.0"
+description = "A chess game with AI agents implemented in Python and Pygame"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "pygame>=2.5.0",
+    "torch>=2.0.0",
+    "numpy>=1.24.0",
+]
+
+[project.scripts]
+chess = "main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agents", "ai", "controllers", "core", "pieces", "ui"]
+include = ["config.py", "main.py", "train.py"]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py38", "py39", "py310", "py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
