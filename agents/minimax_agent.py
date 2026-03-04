@@ -1,5 +1,4 @@
 import math
-import copy
 from .base_agent import BaseAgent
 from core.board import Board
 from core.game_state import GameState
