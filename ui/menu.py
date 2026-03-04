@@ -17,10 +17,21 @@ class MainMenu:
 
     def __init__(self):
         self._setup_fonts()
+        
+        # Load icon image
+        import os
+        try:
+            icon_path = os.path.join("assets", "images", "game-icon.png")
+            self.icon_img = pygame.image.load(icon_path).convert_alpha()
+            self.icon_img = pygame.transform.smoothscale(self.icon_img, (48, 48))
+        except Exception:
+            self.icon_img = None
+            
         self.buttons = []
         self.selected_index = 0
         self.hover_index = -1
         self.state = "main"
+        self._temp_difficulty = None
 
     def _setup_fonts(self):
         """Initialize fonts for the menu."""
@@ -117,7 +128,23 @@ class MainMenu:
                 self._build_buttons(has_save)
                 return None
             else:
-                return {"action": "new_game", "mode": "1p", "difficulty": action}
+                self._temp_difficulty = action
+                self.state = "side_select"
+                self._build_buttons(has_save)
+                return None
+        elif self.state == "side_select":
+            if action == "back":
+                self.state = "difficulty_select"
+                self._build_buttons(has_save)
+                return None
+            else:
+                # action is "white" or "black" indicating the player's color
+                return {
+                    "action": "new_game", 
+                    "mode": "1p", 
+                    "difficulty": self._temp_difficulty,
+                    "player_color": action
+                }
         return None
 
     def _build_buttons(self, has_save):
@@ -202,6 +229,29 @@ class MainMenu:
             ]
             self.selected_index = 0
 
+        elif self.state == "side_select":
+            self.buttons = [
+                {
+                    "label": "Play as White",
+                    "action": "white",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y, btn_w, btn_h),
+                },
+                {
+                    "label": "Play as Black",
+                    "action": "black",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y + 72, btn_w, btn_h),
+                },
+                {
+                    "label": "Back",
+                    "action": "back",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y + 144, btn_w, btn_h),
+                },
+            ]
+            self.selected_index = 0
+
     def _move_selection(self, direction):
         """Move keyboard selection up or down, skipping disabled buttons."""
         n = len(self.buttons)
@@ -223,8 +273,21 @@ class MainMenu:
         pygame.draw.rect(screen, COLOR_ACCENT, pygame.Rect(0, 0, WINDOW_WIDTH, 4))
 
         # -- Title --
-        title_surf = self.font_title.render("♚ Chess", True, COLOR_TEXT_PRIMARY)
-        screen.blit(title_surf, (cx - title_surf.get_width() // 2, 100))
+        if self.icon_img:
+            # Render icon + text
+            title_text_surf = self.font_title.render("Chess", True, COLOR_TEXT_PRIMARY)
+            spacing = 15
+            total_w = self.icon_img.get_width() + spacing + title_text_surf.get_width()
+            start_x = cx - total_w // 2
+            
+            # Draw vertically aligned
+            icon_y = 100 + (title_text_surf.get_height() - self.icon_img.get_height()) // 2
+            screen.blit(self.icon_img, (start_x, icon_y))
+            screen.blit(title_text_surf, (start_x + self.icon_img.get_width() + spacing, 100))
+        else:
+            # Fallback text
+            title_surf = self.font_title.render("♚ Chess", True, COLOR_TEXT_PRIMARY)
+            screen.blit(title_surf, (cx - title_surf.get_width() // 2, 100))
 
         # -- Subtitle --
         subtitle_text = "A classic chess experience"
@@ -232,6 +295,8 @@ class MainMenu:
             subtitle_text = "Select Game Mode"
         elif self.state == "difficulty_select":
             subtitle_text = "Select AI Difficulty"
+        elif self.state == "side_select":
+            subtitle_text = "Select Your Side"
 
         subtitle_surf = self.font_subtitle.render(
             subtitle_text, True, COLOR_TEXT_SECONDARY
