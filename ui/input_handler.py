@@ -16,6 +16,7 @@ class InputHandler:
         self.drag_piece = None        # Reference to the piece being dragged
         self.drag_start = None        # (row, col) where drag started
         self.mouse_pos = (0, 0)       # Current mouse position for drag rendering
+        self.reversed_view = False    # Whether board is reversed for black player
 
     def handle_event(self, event, game_state, turn_controller=None):
         """
@@ -51,7 +52,7 @@ class InputHandler:
             self._clear_selection()
             return {"type": "deselect"}
             
-        clicked_sq = BoardUI.get_square_from_pos(mouse_pos)
+        clicked_sq = BoardUI.get_square_from_pos(mouse_pos, self.reversed_view)
 
         if clicked_sq is None:
             # Clicked outside the board
@@ -99,7 +100,7 @@ class InputHandler:
         if not self.dragging:
             return None
 
-        release_sq = BoardUI.get_square_from_pos(mouse_pos)
+        release_sq = BoardUI.get_square_from_pos(mouse_pos, self.reversed_view)
         start = self.drag_start
         self.dragging = False
         self.drag_piece = None

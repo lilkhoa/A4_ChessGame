@@ -1,5 +1,4 @@
 from controllers.game_controller import GameController
-from agents import RandomAgent, MinimaxAgent, RLAgent
 
 
 def main():

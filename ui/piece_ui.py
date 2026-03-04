@@ -78,7 +78,7 @@ class PieceUI:
         key = self._get_image_key(piece)
         return self.images.get(key)
 
-    def draw_pieces(self, screen, board_grid, skip_pos=None):
+    def draw_pieces(self, screen, board_grid, skip_pos=None, reversed_view=False):
         """
         Draw all pieces on the board.
 
@@ -86,6 +86,7 @@ class PieceUI:
             screen: Pygame display surface
             board_grid: 8x8 grid (list of lists) of Piece or None
             skip_pos: Optional (row, col) to skip (for dragging)
+            reversed_view: If True, flip coordinates for black player perspective
         """
         for row in range(8):
             for col in range(8):
@@ -97,8 +98,11 @@ class PieceUI:
                     if image:
                         img_size = image.get_width()
                         offset = int((SQUARE_SIZE - img_size) / 2)
-                        x = BOARD_OFFSET_X + int(col * SQUARE_SIZE) + offset
-                        y = BOARD_OFFSET_Y + int(row * SQUARE_SIZE) + offset
+                        # Flip coordinates when board is reversed
+                        display_col = (7 - col) if reversed_view else col
+                        display_row = (7 - row) if reversed_view else row
+                        x = BOARD_OFFSET_X + int(display_col * SQUARE_SIZE) + offset
+                        y = BOARD_OFFSET_Y + int(display_row * SQUARE_SIZE) + offset
                         screen.blit(image, (x, y))
 
     def draw_piece_at(self, screen, piece, pos):
@@ -133,3 +137,17 @@ class PieceUI:
             x = BOARD_OFFSET_X + int(col * SQUARE_SIZE) + offset
             y = BOARD_OFFSET_Y + int(row * SQUARE_SIZE) + offset
             screen.blit(image, (x, y))
+    
+    def get_small_piece_sprite(self, piece_name, color):
+        """
+        Get a small piece sprite for captured pieces display.
+        
+        Args:
+            piece_name: Name of the piece (e.g., 'pawn', 'queen')
+            color: Color of the piece ('white' or 'black')
+            
+        Returns:
+            pygame.Surface or None
+        """
+        key = f"{color}_{piece_name}"
+        return self.images.get(key)

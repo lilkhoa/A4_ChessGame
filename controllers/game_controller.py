@@ -348,7 +348,7 @@ class GameController:
         self.screen.fill(COLOR_BG)
         
         # Draw everything (board, pieces, highlights, sidebar, overlays)
-        self.renderer.draw(self.screen, self.game_state, self.input_handler)
+        self.renderer.draw(self.screen, self.game_state, self.input_handler, self)
         
         # Update display
         pygame.display.flip()
@@ -455,10 +455,14 @@ class GameController:
                 self.ai_agent = MinimaxAgent(name="Medium Bot", depth=2)
             elif difficulty == "hard":
                 self.ai_agent = MinimaxAgent(name="Hard Bot", depth=3)
+            
+            # Update input handler's reversed view (reverse if player is black)
+            self.input_handler.reversed_view = (player_color == 'black')
         elif mode == "2p":
             # Clear AI for local multiplayer
             self.ai_agent = None
             self.ai_color = None
+            self.input_handler.reversed_view = False
 
         self._reset_game()
         # Delete any existing save since we're starting fresh
@@ -535,6 +539,9 @@ class GameController:
             self.ai_color = ai_color
         else:
             raise ValueError("Must provide either ai_agent or ai_callback")
+        
+        # Update input handler's reversed view if AI is white (player is black)
+        self.input_handler.reversed_view = (ai_color == 'white')
         
         self.turn_controller.enable_ai(ai_color, callback)
     
