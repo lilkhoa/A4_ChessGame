@@ -1,6 +1,6 @@
 from typing import Optional, Callable
 import time
-
+import threading
 
 class TurnController:
     """
@@ -414,23 +414,30 @@ class TurnController:
         Trigger the AI to make a move.
         
         This will call the AI callback function (e.g., Minimax, Alpha-Beta pruning)
-        The callback should return a move, which will then be processed.
+        in a background thread to prevent UI freezing. The callback should return 
+        a move, which will then be processed in the main thread next frame.
         """
         if not self._is_ai_turn() or self.ai_callback is None:
             return
         
-        try:
-            # Call the AI algorithm to get the best move
-            ai_move = self.ai_callback(self.board, self.game_state, self.ai_color)
-            
-            # Store the move for game controller to execute
-            self.game_state.pending_ai_move = ai_move
+        def ai_worker():
+            try:
+                # Call the AI algorithm to get the best move
+                ai_move = self.ai_callback(self.board, self.game_state, self.ai_color)
                 
-        except Exception as e:
-            print(f"AI error: {e}")
-            import traceback
-            traceback.print_exc()
-            # If AI fails, human can take over
+                # Store the move for game controller to execute
+                self.game_state.pending_ai_move = ai_move
+                    
+            except Exception as e:
+                print(f"AI error: {e}")
+                import traceback
+                traceback.print_exc()
+                # If AI fails, human can take over
+                
+        # Run AI calculation in background so UI remains responsive
+        ai_thread = threading.Thread(target=ai_worker)
+        ai_thread.daemon = True
+        ai_thread.start()
     
     # ==================== Utility Methods ====================
     
