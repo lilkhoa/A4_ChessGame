@@ -211,6 +211,11 @@ class GameController:
             # Check game status
             if turn_result['game_over']:
                 self._handle_game_over(turn_result['game_status'])
+            else:
+                # Check if the move resulted in check
+                game_status = turn_result.get('game_status', {})
+                if game_status.get('status') == 'check':
+                    self.sound_manager.play_check()
             
             # Check if it's AI's turn (for future AI implementation)
             if turn_result.get('ai_turn', False):
