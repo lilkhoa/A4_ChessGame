@@ -175,7 +175,7 @@ class Renderer:
         else:
             # Normal view: White at bottom
             white_avatar = self.avatar_computer if ai_color == 'white' else self.avatar_player
-            white_name = ai_name if ai_color == 'white' else ("Player 2" if is_human_vs_human else "Player")
+            white_name = ai_name if ai_color == 'white' else ("Player 1" if is_human_vs_human else "Player")
             white_active = game_state.current_turn == 'white'
             self._draw_player_panel(
                 screen,
@@ -194,7 +194,7 @@ class Renderer:
             
             # Black panel at top
             black_avatar = self.avatar_computer if ai_color == 'black' else self.avatar_player
-            black_name = ai_name if ai_color == 'black' else ("Player 1" if is_human_vs_human else "Player")
+            black_name = ai_name if ai_color == 'black' else ("Player 2" if is_human_vs_human else "Player")
             black_active = game_state.current_turn == 'black'
             self._draw_player_panel(
                 screen,
@@ -269,8 +269,8 @@ class Renderer:
     
     def _draw_captured_pieces(self, screen, x, y, captured_pieces, material_advantage, max_width):
         """Draw captured pieces with material advantage."""
-        piece_size = 24
-        spacing = 4
+        piece_size = 16  # Reduced for more compact display
+        spacing = 1       # Minimal gap between pieces
         current_x = x
         
         # Order: Queen, Rook, Bishop, Knight, Pawn
@@ -279,7 +279,7 @@ class Renderer:
         for piece_name in piece_order:
             count = captured_pieces.get(piece_name, 0)
             for _ in range(count):
-                if current_x + piece_size > x + max_width - 30:  # Leave space for advantage
+                if current_x + piece_size > x + max_width - 25:  # Leave space for advantage
                     break
                 
                 # Draw small piece icon
@@ -296,9 +296,9 @@ class Renderer:
         # Material advantage (only if positive)
         if material_advantage > 0:
             advantage_text = f"+{material_advantage}"
-            advantage_surface = self.font_body.render(advantage_text, True, COLOR_ACCENT)
+            advantage_surface = self.font_small.render(advantage_text, True, COLOR_ACCENT)  # Use smaller font
             advantage_x = x + max_width - advantage_surface.get_width()
-            screen.blit(advantage_surface, (advantage_x, y + 2))
+            screen.blit(advantage_surface, (advantage_x, y))
     
     def _get_captured_pieces(self, game_state):
         """
