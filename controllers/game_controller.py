@@ -9,6 +9,7 @@ from ui.renderer import Renderer
 from ui.input_handler import InputHandler
 from ui.menu import MainMenu
 from ui.pause_menu import PauseMenu
+from ui.promotion_dialog import PromotionDialog
 from config import WINDOW_WIDTH, WINDOW_HEIGHT, FPS, COLOR_BG
 
 
@@ -41,6 +42,7 @@ class GameController:
         self.input_handler = InputHandler()
         self.main_menu = MainMenu()
         self.pause_menu = PauseMenu()
+        self.promotion_dialog = PromotionDialog(self.renderer.piece_ui)
         
         # Initialize Sound Manager
         self.sound_manager = SoundManager()
@@ -193,8 +195,25 @@ class GameController:
         # Check the last move to determine sound to play
         last_move_index = len(self.game_state.move_log)
         
+        # Detect promotion: pawn reaching the last rank
+        promotion_piece = None
+        piece = self.game_state.board[start_pos[0]][start_pos[1]]
+        if piece and piece.name == "pawn":
+            end_row = end_pos[0]
+            if end_row == 0 or end_row == 7:
+                # Check if this is a human player's turn (not AI)
+                is_ai_turn = (self.turn_controller.ai_enabled and 
+                              self.turn_controller.ai_color == self.game_state.current_turn)
+                if not is_ai_turn:
+                    # Show promotion dialog
+                    self._render()  # Render current board state first
+                    promotion_piece = self.promotion_dialog.show(
+                        self.screen, self.clock, piece.color, end_pos[1]
+                    )
+                # AI defaults to Queen (promotion_piece stays None → Board defaults to Queen)
+        
         # Ask the core to process the move
-        move_successful = self.game_state.process_move(start_pos, end_pos)
+        move_successful = self.game_state.process_move(start_pos, end_pos, promotion_piece)
         
         if move_successful:
             # Play appropriate sound based on move type
