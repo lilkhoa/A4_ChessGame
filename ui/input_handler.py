@@ -136,8 +136,11 @@ class InputHandler:
             raw_moves = piece.get_valid_moves(game_state.board, row, col)
 
         # Filter: only include moves that don't leave king in check
-        self.valid_moves = self._filter_legal_moves(
-            game_state, sq, raw_moves, piece.color
+        # self.valid_moves = self._filter_legal_moves(
+        #     game_state, sq, raw_moves, piece.color
+        # )
+        self.valid_moves = game_state.rules.get_legal_moves_for_piece(
+            game_state.board_obj, piece, row, col, last_move
         )
 
         # Start dragging immediately
@@ -235,10 +238,16 @@ class InputHandler:
         """
         color = game_state.current_turn
         board = game_state.board
-        if self._is_king_in_check(board, color):
+        # if self._is_king_in_check(board, color):
+        #     for r in range(8):
+        #         for c in range(8):
+        #             p = board[r][c]
+        #             if p and p.name == "king" and p.color == color:
+        #                 return (r, c)
+        if game_state.rules.is_in_check(game_state.board_obj, color):
             for r in range(8):
                 for c in range(8):
-                    p = board[r][c]
+                    p = game_state.board[r][c]
                     if p and p.name == "king" and p.color == color:
                         return (r, c)
         return None
