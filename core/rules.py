@@ -118,6 +118,17 @@ class Rules:
         for (er, ec) in raw_moves:
             move = Move((row, col), (er, ec), board.grid)
             
+            if piece.name == 'king' and abs(ec-col) == 2:
+                if self.is_in_check(board, piece.color):
+                    continue
+                    
+                step = 1 if ec > col else -1    # check the right/left move
+                pass_through_col = col + step
+                pass_through_move = Move((row, col), (row, pass_through_col), board.grid)
+                
+                if self._would_leave_king_in_check(board, pass_through_move, piece.color):
+                    continue
+
             if not self._would_leave_king_in_check(board, move, piece.color):
                 legal.append((er, ec))
         
