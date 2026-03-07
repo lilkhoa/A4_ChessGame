@@ -53,3 +53,7 @@ IMAGE_DIR = os.path.join(ASSET_DIR, "images")
 PIECE_IMAGE_DIR = os.path.join(IMAGE_DIR, "chess-img")
 BOARD_IMAGE_PATH = os.path.join(IMAGE_DIR, "chess-board.jpg")
 SOUND_DIR = os.path.join(ASSET_DIR, "sounds")
+
+# MCTS
+import math
+EXPLORATION_CONST = math.sqrt(2)
