@@ -13,6 +13,7 @@ class Move:
         self.is_en_passant = is_en_passant
         self.is_castle = is_castle
         self.is_promotion = is_promotion
+        self.promotion_piece = None  # Piece class to promote to (Queen, Rook, Bishop, Knight)
 
     def __eq__(self, other):
         if isinstance(other, Move):

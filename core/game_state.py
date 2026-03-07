@@ -44,9 +44,14 @@ class GameState:
         """
         return self.is_checkmate or self.is_draw or self.timeout_winner is not None
 
-    def process_move(self, start_pos, end_pos):
+    def process_move(self, start_pos, end_pos, promotion_piece=None):
         """
             Handle move: Check valid -> Make a move -> Update game state
+            
+            Args:
+                start_pos: (row, col) starting position
+                end_pos: (row, col) ending position
+                promotion_piece: Optional piece class for pawn promotion (Queen, Rook, Bishop, Knight)
         """
         r1, c1 = start_pos
         r2, c2 = end_pos
@@ -68,6 +73,7 @@ class GameState:
                 move.is_castle = True
             elif piece.name == "pawn" and (r2 == 0 or r2 == 7):
                 move.is_promotion = True
+                move.promotion_piece = promotion_piece
             
             # Check whether a piece is captured (include en passant move)
             is_capture = (move.piece_captured is not None) or move.is_en_passant
