@@ -422,11 +422,12 @@ class GameController:
             ai_agent_type: Class name of the AI agent (e.g., "MinimaxAgent")
             ai_color: Color the AI plays ('white' or 'black')
         """
-        from agents import RandomAgent, MinimaxAgent
+        from agents import RandomAgent, MinimaxAgent, MCTSAgent
         
         agent_map = {
             "RandomAgent": lambda: RandomAgent("Easy Bot"),
             "MinimaxAgent": lambda: MinimaxAgent(name="Minimax Bot", depth=3),
+            "MCTSAgent": lambda: MCTSAgent(think_time=3.0, max_rollout_depth=30)
         }
         
         factory = agent_map.get(ai_agent_type)
@@ -445,14 +446,14 @@ class GameController:
         
         # If explicitly passed from menu, update the controller's AI settings
         if mode == "1p" and difficulty:
-            from agents import RandomAgent, MinimaxAgent
+            from agents import RandomAgent, MinimaxAgent, MCTSAgent
             # Determine AI color (opposite of player color)
             self.ai_color = 'black' if player_color == 'white' else 'white'
             
             if difficulty == "easy":
                 self.ai_agent = RandomAgent("Easy Bot")
             elif difficulty == "medium":
-                self.ai_agent = MinimaxAgent(name="Medium Bot", depth=2)
+                self.ai_agent = MCTSAgent(think_time=3.5, max_rollout_depth=30)
             elif difficulty == "hard":
                 self.ai_agent = MinimaxAgent(name="Hard Bot", depth=3)
             
