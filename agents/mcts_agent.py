@@ -1,9 +1,3 @@
-"""
-    We may use Optimized MCTS Agent because we are using Pygame to run the game, not using C/C++, if we randomly simulate to the end of the game, it will wait a very long time for the MCTS response:
-        - Max Rollout Depth: MCTS just should simulate at the range 30-40 moves, then apply the material evaluation to guess who gets the benefit.
-        - Heuristic Rollout: Instead of moving 100% randomly, MCTS will prioritize for "eacting" as much as possible of the pieces. Help AI does not blind of some basic strategy/
-"""
-
 import math
 import random
 import time
