@@ -221,10 +221,16 @@ class MainMenu:
                     "rect": pygame.Rect(cx - btn_w // 2, start_y + 108, btn_w, btn_h),
                 },
                 {
+                    "label": "Pro",
+                    "action": "pro",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y + 180, btn_w, btn_h),
+                },
+                {
                     "label": "Back",
                     "action": "back",
                     "enabled": True,
-                    "rect": pygame.Rect(cx - btn_w // 2, start_y + 180, btn_w, btn_h),
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y + 252, btn_w, btn_h),
                 },
             ]
             self.selected_index = 0
