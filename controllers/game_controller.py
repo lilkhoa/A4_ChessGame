@@ -470,11 +470,11 @@ class GameController:
             self.ai_color = 'black' if player_color == 'white' else 'white'
             
             if difficulty == "easy":
-                self.ai_agent = RandomAgent("Easy Bot")
+                self.ai_agent = RandomAgent("Easy")
             elif difficulty == "medium":
-                self.ai_agent = MCTSAgent(think_time=3.5, max_rollout_depth=30)
+                self.ai_agent = MCTSAgent(name="Medium", think_time=3.5, max_rollout_depth=30)
             elif difficulty == "hard":
-                self.ai_agent = MinimaxAgent(name="Hard Bot", depth=3)
+                self.ai_agent = MinimaxAgent(name="Hard", depth=3)
             
             # Update input handler's reversed view (reverse if player is black)
             self.input_handler.reversed_view = (player_color == 'black')

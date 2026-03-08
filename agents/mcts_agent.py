@@ -85,8 +85,6 @@ class MCTSAgent(BaseAgent):
 
             iterations += 1
 
-        print(f"AI {self.name} has run {iterations} iterations MCTS in {self.think_time}s.")
-
         # Choose the best move based on the number of visit (Robust Child)
         best_child_id = max(root.children.items(), key=lambda item: item[1].visits)[0]
 
