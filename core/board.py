@@ -107,7 +107,8 @@ class Board:
             self.grid[move.start_row][move.end_col] = None
 
         elif getattr(move, 'is_promotion', False):
-            # Default promote to Queen
-            promoted_piece = Queen(piece.color)     # Piece.color
+            # Use the chosen promotion piece, default to Queen
+            promo_class = getattr(move, 'promotion_piece', None) or Queen
+            promoted_piece = promo_class(piece.color)
             promoted_piece.has_moved = True
             self.grid[move.end_row][move.end_col] = promoted_piece
