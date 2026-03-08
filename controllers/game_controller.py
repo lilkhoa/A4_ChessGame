@@ -465,7 +465,7 @@ class GameController:
         
         # If explicitly passed from menu, update the controller's AI settings
         if mode == "1p" and difficulty:
-            from agents import RandomAgent, MinimaxAgent, MCTSAgent
+            from agents import RandomAgent, MinimaxAgent, MCTSAgent, DLAgent
             # Determine AI color (opposite of player color)
             self.ai_color = 'black' if player_color == 'white' else 'white'
             
@@ -474,7 +474,14 @@ class GameController:
             elif difficulty == "medium":
                 self.ai_agent = MCTSAgent(name="Medium", think_time=3.5, max_rollout_depth=30)
             elif difficulty == "hard":
-                self.ai_agent = MinimaxAgent(name="Hard", depth=3)
+                self.ai_agent = DLAgent(
+                    model_path="ai/DL/trained_model/best_chess_model.keras",
+                    max_depth=4,
+                    beam_width=5,
+                    name="Hard"
+                )
+            elif difficulty == "pro":
+                self.ai_agent = MinimaxAgent(name="Pro", depth=3)
             
             # Update input handler's reversed view (reverse if player is black)
             self.input_handler.reversed_view = (player_color == 'black')
