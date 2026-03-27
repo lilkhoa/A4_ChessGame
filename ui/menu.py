@@ -32,6 +32,7 @@ class MainMenu:
         self.hover_index = -1
         self.state = "main"
         self._temp_difficulty = None
+        self.room_code = ""
 
     def _setup_fonts(self):
         """Initialize fonts for the menu."""
@@ -70,6 +71,19 @@ class MainMenu:
                     return {"action": "quit"}
 
                 if event.type == pygame.KEYDOWN:
+                    if self.state == "room_input":
+                        if event.key == pygame.K_ESCAPE:
+                            self.state = "online_select"
+                            self._build_buttons(has_save)
+                        elif event.key == pygame.K_BACKSPACE:
+                            self.room_code = self.room_code[:-1]
+                        elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                            if len(self.room_code) == 6:
+                                return {"action": "new_game", "mode": "online", "online_action": "join", "room_id": self.room_code}
+                        elif event.unicode.isdigit() and len(self.room_code) < 6:
+                            self.room_code += event.unicode
+                        continue
+
                     if event.key == pygame.K_ESCAPE:
                         if self.state == "main":
                             return {"action": "quit"}
@@ -122,6 +136,27 @@ class MainMenu:
                 return None
             elif action == "2p":
                 return {"action": "new_game", "mode": "2p", "difficulty": None}
+            elif action == "online":
+                self.state = "online_select"
+                self._build_buttons(has_save)
+                return None
+        elif self.state == "online_select":
+            if action == "create_room":
+                return {"action": "new_game", "mode": "online", "online_action": "create"}
+            elif action == "join_room":
+                self.room_code = ""
+                self.state = "room_input"
+                self._build_buttons(has_save)
+                return None
+            elif action == "back":
+                self.state = "mode_select"
+                self._build_buttons(has_save)
+                return None
+        elif self.state == "room_input":
+             if action == "back":
+                 self.state = "online_select"
+                 self._build_buttons(has_save)
+                 return None
         elif self.state == "difficulty_select":
             if action == "back":
                 self.state = "mode_select"
@@ -192,11 +227,51 @@ class MainMenu:
                     "rect": pygame.Rect(cx - btn_w // 2, start_y + 72, btn_w, btn_h),
                 },
                 {
+                    "label": "Online",
+                    "action": "online",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y + 144, btn_w, btn_h),
+                },
+                {
+                    "label": "Back",
+                    "action": "back",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y + 216, btn_w, btn_h),
+                },
+            ]
+            self.selected_index = 0
+            
+        elif self.state == "online_select":
+            self.buttons = [
+                {
+                    "label": "Create Room",
+                    "action": "create_room",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y, btn_w, btn_h),
+                },
+                {
+                    "label": "Join Room",
+                    "action": "join_room",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y + 72, btn_w, btn_h),
+                },
+                {
                     "label": "Back",
                     "action": "back",
                     "enabled": True,
                     "rect": pygame.Rect(cx - btn_w // 2, start_y + 144, btn_w, btn_h),
                 },
+            ]
+            self.selected_index = 0
+            
+        elif self.state == "room_input":
+            self.buttons = [
+                {
+                    "label": "Cancel",
+                    "action": "back",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y + 150, btn_w, btn_h),
+                }
             ]
             self.selected_index = 0
             
@@ -303,6 +378,10 @@ class MainMenu:
             subtitle_text = "Select AI Difficulty"
         elif self.state == "side_select":
             subtitle_text = "Select Your Side"
+        elif self.state == "online_select":
+            subtitle_text = "Multiplayer Online"
+        elif self.state == "room_input":
+            subtitle_text = "Enter 6-Digit Room ID"
 
         subtitle_surf = self.font_subtitle.render(
             subtitle_text, True, COLOR_TEXT_SECONDARY
@@ -321,8 +400,24 @@ class MainMenu:
             is_selected = (i == self.selected_index) or (i == self.hover_index)
             self._draw_button(screen, btn, is_selected)
 
+            self._draw_button(screen, btn, is_selected)
+
+        if self.state == "room_input":
+            # Draw the input box and code
+            input_rect = pygame.Rect(cx - 140, 310, 280, 54)
+            pygame.draw.rect(screen, COLOR_PANEL_BG, input_rect, border_radius=8)
+            pygame.draw.rect(screen, COLOR_ACCENT, input_rect, 2, border_radius=8)
+            
+            display_text = self.room_code + ("_" if (pygame.time.get_ticks() // 500) % 2 else "")
+            code_surf = self.font_title.render(display_text, True, COLOR_TEXT_PRIMARY)
+            screen.blit(code_surf, (cx - code_surf.get_width() // 2, input_rect.centery - code_surf.get_height() // 2))
+
         # -- Hint text at bottom --
-        hint = "↑↓ Navigate  •  Enter Select  •  ESC Quit"
+        if self.state == "room_input":
+            hint = "Type 6 digits  •  Enter logic  •  ESC Cancel"
+        else:
+            hint = "↑↓ Navigate  •  Enter Select  •  ESC Quit"
+        
         hint_surf = self.font_hint.render(hint, True, COLOR_TEXT_SECONDARY)
         screen.blit(hint_surf, (cx - hint_surf.get_width() // 2, WINDOW_HEIGHT - 40))
 

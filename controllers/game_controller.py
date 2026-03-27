@@ -62,6 +62,14 @@ class GameController:
         self.ai_agent = None
         self.ai_color = None
 
+        # Network settings
+        self.network_client = None
+        self.is_online_game = False
+        self.online_color = None
+        self.online_room_id = None
+        self.waiting_for_opponent = False
+        self.is_receiving_network_move = False
+
     def run(self):
         """
         Main application loop.
@@ -96,8 +104,16 @@ class GameController:
             mode = payload.get("mode", "2p")
             difficulty = payload.get("difficulty")
             player_color = payload.get("player_color", 'white')
-            self._start_new_game(mode, difficulty, player_color)
-            self.app_state = "playing"
+            
+            if mode == "online":
+                self._setup_online_game(payload)
+            else:
+                self.is_online_game = False
+                if self.network_client:
+                    self.network_client.disconnect()
+                    self.network_client = None
+                self._start_new_game(mode, difficulty, player_color)
+                self.app_state = "playing"
         elif action == "continue":
             success = self._load_saved_game()
             if success:
@@ -110,6 +126,64 @@ class GameController:
 
     # ==================== Playing State ====================
 
+    def _setup_online_game(self, payload):
+        """Initialize sockets and wait for connection."""
+        from core.network_client import NetworkClient
+        self.is_online_game = True
+        self.network_client = NetworkClient()
+        if not self.network_client.connect():
+            print("Could not connect to online server 127.0.0.1:8888")
+            return
+            
+        self._reset_game()
+        SaveManager.delete_save()
+        self.sound_manager.play_game_start()
+        
+        self.waiting_for_opponent = True
+        self.app_state = "playing"
+        
+        online_action = payload.get("online_action")
+        if online_action == "create":
+            self.network_client.send({"action": "create_room"})
+        elif online_action == "join":
+            room_id = payload.get("room_id")
+            self.network_client.send({"action": "join_room", "room_id": room_id})
+
+    def _handle_network_events(self):
+        """Process incoming socket events if online."""
+        if not self.is_online_game or not self.network_client:
+            return
+            
+        for event in self.network_client.get_events():
+            action = event.get("action")
+            if action == "room_created":
+                self.online_room_id = event.get("room_id")
+                self.online_color = "white"
+                self.input_handler.reversed_view = False
+            elif action == "room_joined":
+                self.online_room_id = event.get("room_id")
+                self.online_color = event.get("color", "black")
+                self.input_handler.reversed_view = (self.online_color == "black")
+                self.waiting_for_opponent = False
+            elif action == "opponent_joined":
+                self.waiting_for_opponent = False
+            elif action == "move":
+                start_pos = tuple(event.get("start"))
+                end_pos = tuple(event.get("end"))
+                network_promo = event.get("promotion")
+                
+                self.is_receiving_network_move = True
+                self._attempt_move(start_pos, end_pos, network_promotion)
+                self.is_receiving_network_move = False
+            elif action == "opponent_disconnected":
+                self._handle_game_over({'status': 'opponent_disconnected', 'message': 'Opponent Disconnected'})
+            elif action == "error":
+                print(f"Server Error: {event.get('message')}")
+                if self.waiting_for_opponent:
+                    # Return to menu if join fails
+                    self.network_client.disconnect()
+                    self.app_state = "menu"
+
     def _run_game(self):
         """
         Main game loop following the Input → Update → Render pattern.
@@ -119,6 +193,10 @@ class GameController:
             self.turn_controller._trigger_ai()
         
         while self.running and self.app_state == "playing":
+            # Process network socket buffer into events
+            if self.is_online_game:
+                self._handle_network_events()
+                
             # Input: Process all events
             self._handle_events()
             
@@ -179,7 +257,7 @@ class GameController:
             # Clear any selection (already handled by InputHandler)
             pass
     
-    def _attempt_move(self, start_pos, end_pos):
+    def _attempt_move(self, start_pos, end_pos, network_promotion=None):
         """
         Attempt to execute a move from start_pos to end_pos.
         
@@ -192,6 +270,12 @@ class GameController:
             start_pos: (row, col) starting position
             end_pos: (row, col) ending position
         """
+        # Block if online and waiting for opponent, or not local player's turn
+        if self.is_online_game and not self.is_receiving_network_move:
+            if self.waiting_for_opponent:
+                return
+            if self.game_state.current_turn != self.online_color:
+                return
         # Check the last move to determine sound to play
         last_move_index = len(self.game_state.move_log)
         
@@ -204,14 +288,17 @@ class GameController:
                 # Check if this is a human player's turn (not AI)
                 is_ai_turn = (self.turn_controller.ai_enabled and 
                               self.turn_controller.ai_color == self.game_state.current_turn)
-                if not is_ai_turn:
+                if not is_ai_turn and not network_promotion:
                     # Show promotion dialog
                     self._render()  # Render current board state first
                     promotion_piece = self.promotion_dialog.show(
                         self.screen, self.clock, piece.color, end_pos[1]
                     )
-                # AI defaults to Queen (promotion_piece stays None → Board defaults to Queen)
         
+        # Override with network promo if received
+        if network_promotion:
+            promotion_piece = network_promotion
+            
         # Ask the core to process the move
         move_successful = self.game_state.process_move(start_pos, end_pos, promotion_piece)
         
@@ -239,6 +326,15 @@ class GameController:
             # Check if it's AI's turn (for future AI implementation)
             if turn_result.get('ai_turn', False):
                 self._trigger_ai_move()
+                
+            # Broadcast network move if successful and locally initiated
+            if self.is_online_game and not self.is_receiving_network_move:
+                self.network_client.send({
+                    "action": "move", 
+                    "start": start_pos, 
+                    "end": end_pos, 
+                    "promotion": promotion_piece
+                })
         else:
             # Play illegal move sound
             self.sound_manager.play_illegal_move()
@@ -368,6 +464,23 @@ class GameController:
         
         # Draw everything (board, pieces, highlights, sidebar, overlays)
         self.renderer.draw(self.screen, self.game_state, self.input_handler, self)
+        
+        # Draw waiting overlay if online and waiting
+        if self.is_online_game and self.waiting_for_opponent:
+            overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 180))
+            self.screen.blit(overlay, (0, 0))
+            
+            font = pygame.font.SysFont("Segoe UI", 48, bold=True)
+            if self.online_room_id:
+                text = f"Room: {self.online_room_id} - Waiting for opponent..."
+            else:
+                text = "Connecting to server..."
+            
+            text_surf = font.render(text, True, (255, 255, 255))
+            cx = WINDOW_WIDTH // 2 - text_surf.get_width() // 2
+            cy = WINDOW_HEIGHT // 2 - text_surf.get_height() // 2
+            self.screen.blit(text_surf, (cx, cy))
         
         # Update display
         pygame.display.flip()
