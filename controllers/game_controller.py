@@ -1,5 +1,6 @@
 import pygame
 from core.board import Board
+from core.move import Move
 from core.game_state import GameState
 from core.rules import Rules
 from core.timer import Timer
@@ -12,6 +13,10 @@ from ui.timer_ui import TimerUI
 from ui.menu import MainMenu
 from ui.pause_menu import PauseMenu
 from ui.promotion_dialog import PromotionDialog
+from pieces.queen import Queen
+from pieces.rook import Rook
+from pieces.bishop import Bishop
+from pieces.knight import Knight
 from config import WINDOW_WIDTH, WINDOW_HEIGHT, FPS, COLOR_BG
 
 
@@ -79,6 +84,11 @@ class GameController:
         self.online_room_id = None
         self.waiting_for_opponent = False
         self.is_receiving_network_move = False
+
+        # Online promotion flow flags
+        self.is_promoting = False
+        self.pending_promotion_move = None
+        self.waiting_for_server = False
 
     def run(self):
         """
@@ -165,7 +175,7 @@ class GameController:
             return
             
         for event in self.network_client.get_events():
-            action = event.get("action")
+            action = (event.get("action") or "").lower()
             if action == "room_created":
                 self.online_room_id = event.get("room_id")
                 self.online_color = "white"
@@ -177,14 +187,51 @@ class GameController:
                 self.waiting_for_opponent = False
             elif action == "opponent_joined":
                 self.waiting_for_opponent = False
-            elif action == "move":
-                start_pos = tuple(event.get("start"))
-                end_pos = tuple(event.get("end"))
-                network_promotion = event.get("promotion")
-                
+            elif action in {"sync", "move"}:
+                move_data = event.get("move") or event.get("data")
+                start_pos = None
+                end_pos = None
+                network_promotion = None
+
+                # Preferred compact format: e7e8Q
+                if isinstance(move_data, str):
+                    try:
+                        start_pos, end_pos, network_promotion = Move.from_network_format(move_data)
+                    except ValueError:
+                        start_pos = None
+
+                # Backward compatibility with start/end fields
+                if start_pos is None:
+                    if event.get("start") is not None and event.get("end") is not None:
+                        start_pos = tuple(event.get("start"))
+                        end_pos = tuple(event.get("end"))
+                        network_promotion = event.get("promotion")
+
+                if start_pos is None or end_pos is None:
+                    continue
+
+                # Timer synchronization from server packet (authoritative)
+                if event.get("white_time") is not None and event.get("black_time") is not None:
+                    self.timer.sync(event.get("white_time"), event.get("black_time"))
+
+                # Apply move only after server event arrives
                 self.is_receiving_network_move = True
                 self._attempt_move(start_pos, end_pos, network_promotion)
                 self.is_receiving_network_move = False
+
+                # Server confirmed a move, unlock client input
+                self.waiting_for_server = False
+                self.is_promoting = False
+                self.pending_promotion_move = None
+                self.promotion_dialog.close()
+            elif action == "time_out":
+                winner = event.get("winner")
+                if winner in {"white", "black"}:
+                    self.game_state.timeout_winner = winner
+                    self.turn_controller.game_over = True
+                    self.turn_controller.game_over_reason = "timeout"
+                    self.turn_controller.winner = winner
+                self.waiting_for_server = False
             elif action == "opponent_disconnected":
                 self._handle_game_over({'status': 'opponent_disconnected', 'message': 'Opponent Disconnected'})
             elif action == "error":
@@ -253,6 +300,18 @@ class GameController:
             # Don't process moves if game is over
             if self.game_state.is_game_over:
                 continue
+
+            # Promotion selection phase: only process promotion popup clicks
+            if self.is_promoting:
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    selected_code = self.promotion_dialog.get_selected_piece(event.pos)
+                    if selected_code:
+                        self._finalize_pending_promotion(selected_code)
+                continue
+
+            # While waiting for server confirmation in online mode, block board input
+            if self.is_online_game and self.waiting_for_server:
+                continue
             
             # Mouse events (handled by InputHandler)
             action = self.input_handler.handle_event(event, self.game_state, self.turn_controller)
@@ -275,6 +334,117 @@ class GameController:
         elif action["type"] == "deselect":
             # Clear any selection (already handled by InputHandler)
             pass
+
+    @staticmethod
+    def _promotion_code_to_piece_class(code):
+        promo_map = {
+            "Q": Queen,
+            "R": Rook,
+            "B": Bishop,
+            "N": Knight,
+        }
+        if code is None:
+            return None
+        return promo_map.get(str(code).upper())
+
+    @staticmethod
+    def _piece_class_to_promotion_code(piece_cls):
+        if piece_cls is None:
+            return None
+        name = getattr(piece_cls, "__name__", "")
+        reverse_map = {
+            "Queen": "Q",
+            "Rook": "R",
+            "Bishop": "B",
+            "Knight": "N",
+        }
+        return reverse_map.get(name)
+
+    def _queue_promotion_dialog(self, start_pos, end_pos, color):
+        """Enter promotion selection state without modifying board state."""
+        self.is_promoting = True
+        self.pending_promotion_move = {
+            "start": start_pos,
+            "end": end_pos,
+            "color": color,
+        }
+        self.promotion_dialog.open(
+            color=color,
+            col=end_pos[1],
+            row=end_pos[0],
+            reversed_view=self.input_handler.reversed_view,
+        )
+
+    def _send_online_move_request(self, start_pos, end_pos, promotion_code=None):
+        """Send move request to server in compact and legacy-compatible formats."""
+        move_obj = Move(start_pos, end_pos, self.game_state.board, promotion_piece=promotion_code)
+        move_str = move_obj.to_network_format()
+
+        # Primary protocol (compact string form)
+        self.network_client.send({
+            "action": "MOVE",
+            "data": move_str,
+        })
+
+        # Backward compatibility payload for current relay servers
+        self.network_client.send({
+            "action": "move",
+            "start": start_pos,
+            "end": end_pos,
+            "promotion": promotion_code,
+            "move": move_str,
+        })
+
+    def _finalize_pending_promotion(self, selected_code):
+        """Finalize selected promotion and continue according to game mode."""
+        if not self.pending_promotion_move:
+            self.is_promoting = False
+            self.promotion_dialog.close()
+            return
+
+        start_pos = self.pending_promotion_move["start"]
+        end_pos = self.pending_promotion_move["end"]
+
+        self.is_promoting = False
+        self.promotion_dialog.close()
+
+        if self.is_online_game and not self.is_receiving_network_move:
+            self._send_online_move_request(start_pos, end_pos, selected_code)
+            self.waiting_for_server = True
+            self.pending_promotion_move = None
+            return
+
+        promotion_piece = self._promotion_code_to_piece_class(selected_code)
+        self.pending_promotion_move = None
+        self._attempt_move(start_pos, end_pos, promotion_piece)
+
+    def _apply_confirmed_move(self, start_pos, end_pos, promotion_piece=None):
+        """Apply a move that is already authorized (offline or server-confirmed online)."""
+        last_move_index = len(self.game_state.move_log)
+
+        move_successful = self.game_state.process_move(start_pos, end_pos, promotion_piece)
+
+        if move_successful:
+            if last_move_index < len(self.game_state.move_log):
+                last_move = self.game_state.move_log[-1]
+                self._play_move_sound(last_move)
+
+            self.rules.update_position_history(self.board)
+            turn_result = self.turn_controller.complete_turn(move_successful=True)
+
+            if turn_result['game_over']:
+                self._handle_game_over(turn_result['game_status'])
+            else:
+                game_status = turn_result.get('game_status', {})
+                if game_status.get('status') == 'check':
+                    self.sound_manager.play_check()
+
+            if turn_result.get('ai_turn', False):
+                self._trigger_ai_move()
+            return True
+
+        self.sound_manager.play_illegal_move()
+        return False
     
     def _attempt_move(self, start_pos, end_pos, network_promotion=None):
         """
@@ -289,74 +459,59 @@ class GameController:
             start_pos: (row, col) starting position
             end_pos: (row, col) ending position
         """
-        # Block if online and waiting for opponent, or not local player's turn
+        # Local player in online mode: never mutate board before server confirmation.
         if self.is_online_game and not self.is_receiving_network_move:
-            if self.waiting_for_opponent:
+            if self.waiting_for_opponent or self.waiting_for_server:
                 return
             if self.game_state.current_turn != self.online_color:
                 return
-        # Check the last move to determine sound to play
-        last_move_index = len(self.game_state.move_log)
-        
-        # Detect promotion: pawn reaching the last rank
-        promotion_piece = None
-        piece = self.game_state.board[start_pos[0]][start_pos[1]]
-        if piece and piece.name == "pawn":
-            end_row = end_pos[0]
-            if end_row == 0 or end_row == 7:
-                # Check if this is a human player's turn (not AI)
-                is_ai_turn = (self.turn_controller.ai_enabled and 
-                              self.turn_controller.ai_color == self.game_state.current_turn)
-                if not is_ai_turn and not network_promotion:
-                    # Show promotion dialog
-                    self._render()  # Render current board state first
-                    promotion_piece = self.promotion_dialog.show(
-                        self.screen, self.clock, piece.color, end_pos[1]
-                    )
-        
-        # Override with network promo if received
-        if network_promotion:
-            promotion_piece = network_promotion
-            
-        # Ask the core to process the move
-        move_successful = self.game_state.process_move(start_pos, end_pos, promotion_piece)
-        
-        if move_successful:
-            # Play appropriate sound based on move type
-            if last_move_index < len(self.game_state.move_log):
-                last_move = self.game_state.move_log[-1]
-                self._play_move_sound(last_move)
-            
-            # Update position history BEFORE switching turns for threefold repetition
-            self.rules.update_position_history(self.board)
-            
-            # Complete the turn (switches player)
-            turn_result = self.turn_controller.complete_turn(move_successful=True)
-            
-            # Check game status
-            if turn_result['game_over']:
-                self._handle_game_over(turn_result['game_status'])
-            else:
-                # Check if the move resulted in check
-                game_status = turn_result.get('game_status', {})
-                if game_status.get('status') == 'check':
-                    self.sound_manager.play_check()
-            
-            # Check if it's AI's turn (for future AI implementation)
-            if turn_result.get('ai_turn', False):
-                self._trigger_ai_move()
-                
-            # Broadcast network move if successful and locally initiated
-            if self.is_online_game and not self.is_receiving_network_move:
-                self.network_client.send({
-                    "action": "move", 
-                    "start": start_pos, 
-                    "end": end_pos, 
-                    "promotion": promotion_piece
-                })
-        else:
-            # Play illegal move sound
-            self.sound_manager.play_illegal_move()
+
+            promotion_code = None
+            if network_promotion is not None:
+                if isinstance(network_promotion, str):
+                    promotion_code = network_promotion.upper()
+                else:
+                    promotion_code = self._piece_class_to_promotion_code(network_promotion)
+
+            piece = self.game_state.board[start_pos[0]][start_pos[1]]
+            is_ai_turn = (
+                self.turn_controller.ai_enabled and
+                self.turn_controller.ai_color == self.game_state.current_turn
+            )
+
+            if self.rules.is_promotion_move(self.board, start_pos, end_pos) and promotion_code is None:
+                if is_ai_turn:
+                    promotion_code = "Q"
+                else:
+                    self._queue_promotion_dialog(start_pos, end_pos, piece.color if piece else self.game_state.current_turn)
+                    return
+
+            self._send_online_move_request(start_pos, end_pos, promotion_code)
+            self.waiting_for_server = True
+            return
+
+        # Offline or server-authorized online move: apply immediately.
+        promotion_piece = network_promotion
+
+        # For offline human promotion, collect piece choice first.
+        if not self.is_online_game:
+            piece = self.game_state.board[start_pos[0]][start_pos[1]]
+            is_ai_turn = (
+                self.turn_controller.ai_enabled and
+                self.turn_controller.ai_color == self.game_state.current_turn
+            )
+            if self.rules.is_promotion_move(self.board, start_pos, end_pos) and promotion_piece is None:
+                if is_ai_turn:
+                    promotion_piece = Queen
+                else:
+                    self._queue_promotion_dialog(start_pos, end_pos, piece.color if piece else self.game_state.current_turn)
+                    return
+
+        # Convert promotion token from network to piece class if needed.
+        if isinstance(promotion_piece, str):
+            promotion_piece = self._promotion_code_to_piece_class(promotion_piece)
+
+        self._apply_confirmed_move(start_pos, end_pos, promotion_piece)
     
     def _handle_game_over(self, game_status):
         """
@@ -517,6 +672,10 @@ class GameController:
             cx = WINDOW_WIDTH // 2 - text_surf.get_width() // 2
             cy = WINDOW_HEIGHT // 2 - text_surf.get_height() // 2
             self.screen.blit(text_surf, (cx, cy))
+
+        # Draw promotion chooser on top of board/UI when active
+        if self.is_promoting:
+            self.promotion_dialog.draw(self.screen)
         
         # Update display
         pygame.display.flip()
@@ -686,6 +845,12 @@ class GameController:
         
         # Clear input handler state
         self.input_handler.reset()
+
+        # Reset promotion/network waiting state
+        self.is_promoting = False
+        self.pending_promotion_move = None
+        self.waiting_for_server = False
+        self.promotion_dialog.close()
     
     def enable_clock(self, time_per_player=300.0):
         """

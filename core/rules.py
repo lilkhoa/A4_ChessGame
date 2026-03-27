@@ -12,6 +12,31 @@ class Rules:
     def __init__(self):
         self.position_history = []
         self.move_history = []
+
+    def is_promotion_move(self, board, start_pos, end_pos) -> bool:
+        """
+        Check whether a move is a pawn promotion move.
+
+        Args:
+            board: Board object
+            start_pos: Tuple[int, int]
+            end_pos: Tuple[int, int]
+
+        Returns:
+            bool: True if pawn reaches last rank, else False
+        """
+        start_row, start_col = start_pos
+        end_row, _ = end_pos
+        piece = board.get_piece(start_row, start_col)
+
+        if piece is None or piece.name != 'pawn':
+            return False
+
+        if piece.color == 'white' and end_row == 0:
+            return True
+        if piece.color == 'black' and end_row == 7:
+            return True
+        return False
         
     def is_legal_move(self, board, move, game_state) -> bool:
         """

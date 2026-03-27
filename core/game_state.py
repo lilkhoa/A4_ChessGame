@@ -12,6 +12,21 @@ from pieces.bishop import Bishop
 from pieces.queen import Queen
 from pieces.king import King
 
+
+def _promotion_to_class(promotion_piece):
+    """Normalize promotion input (code/class/None) to a piece class."""
+    if promotion_piece is None:
+        return Queen
+    if isinstance(promotion_piece, str):
+        code = promotion_piece.upper()
+        return {
+            'Q': Queen,
+            'R': Rook,
+            'B': Bishop,
+            'N': Knight,
+        }.get(code, Queen)
+    return promotion_piece
+
 class GameState:
     def __init__(self, board_obj, rules=None):
 
@@ -73,7 +88,7 @@ class GameState:
                 move.is_castle = True
             elif piece.name == "pawn" and (r2 == 0 or r2 == 7):
                 move.is_promotion = True
-                move.promotion_piece = promotion_piece
+                move.promotion_piece = _promotion_to_class(promotion_piece)
             
             # Check whether a piece is captured (include en passant move)
             is_capture = (move.piece_captured is not None) or move.is_en_passant
