@@ -13,6 +13,8 @@ from ui.timer_ui import TimerUI
 from ui.menu import MainMenu
 from ui.pause_menu import PauseMenu
 from ui.promotion_dialog import PromotionDialog
+from ui.action_panel_ui import ActionPanelUI
+from ui.dialog_ui import DrawOfferDialog
 from pieces.queen import Queen
 from pieces.rook import Rook
 from pieces.bishop import Bishop
@@ -58,6 +60,8 @@ class GameController:
         self.main_menu = MainMenu()
         self.pause_menu = PauseMenu()
         self.promotion_dialog = PromotionDialog(self.renderer.piece_ui)
+        self.action_panel_ui = ActionPanelUI()
+        self.draw_offer_dialog = DrawOfferDialog()
         
         # Initialize Sound Manager
         self.sound_manager = SoundManager()
@@ -89,6 +93,11 @@ class GameController:
         self.is_promoting = False
         self.pending_promotion_move = None
         self.waiting_for_server = False
+        
+        # Communication action flags
+        self.draw_offer_cooldown = 0.0  # Cooldown timer after sending draw offer
+        self.is_showing_draw_dialog = False  # Draw offer dialog is active
+        self.pending_draw_offer_from_opponent = False  # We received a draw offer, waiting for response
 
     def run(self):
         """
@@ -234,6 +243,33 @@ class GameController:
                 self.waiting_for_server = False
             elif action == "opponent_disconnected":
                 self._handle_game_over({'status': 'opponent_disconnected', 'message': 'Opponent Disconnected'})
+            elif action == "resign":
+                # Opponent resigned
+                opponent = event.get("player")
+                if opponent == self.online_color:
+                    # This shouldn't happen (we wouldn't receive our own resignation)
+                    pass
+                else:
+                    # Opponent resigned, we win
+                    loser = "white" if opponent == "white" else "black"
+                    self.game_state.resigned_player = loser
+                    self.turn_controller.game_over = True
+                    self.turn_controller.game_over_reason = "resignation"
+                    self.turn_controller.winner = "black" if loser == "white" else "white"
+            elif action == "offer_draw":
+                # Opponent offers a draw
+                self.is_showing_draw_dialog = True
+                self.pending_draw_offer_from_opponent = True
+                self.draw_offer_dialog.open()
+            elif action == "draw_declined":
+                # Our draw offer was declined
+                self.action_panel_ui.set_draw_offer_cooldown(10.0)  # 10 second cooldown
+                print("Opponent declined the draw offer.")
+            elif action == "draw_accepted":
+                # Both players agreed to draw
+                self.game_state.is_draw_agreed = True
+                self.turn_controller.game_over = True
+                self.turn_controller.game_over_reason = "draw_agreed"
             elif action == "error":
                 print(f"Server Error: {event.get('message')}")
                 if self.waiting_for_opponent:
@@ -272,6 +308,9 @@ class GameController:
                 self.timer.tick(delta_time)
                 self.timer_ui.tick(delta_time)
             
+            # Update: Action panel cooldowns (for draw offer spamming prevention)
+            self.action_panel_ui.tick(delta_time)
+            
             # Update: Sync timer values from turn_controller to game_state
             self._update_timers()
             
@@ -297,8 +336,23 @@ class GameController:
                     if self.game_state.is_game_over:
                         self._start_new_game()
             
+            # Mouse motion for dialog hover effects
+            if event.type == pygame.MOUSEMOTION:
+                if self.is_showing_draw_dialog:
+                    self.draw_offer_dialog.handle_mousemotion(event.pos)
+            
             # Don't process moves if game is over
             if self.game_state.is_game_over:
+                continue
+
+            # Draw offer dialog is active: only process dialog clicks
+            if self.is_showing_draw_dialog:
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    dialog_response = self.draw_offer_dialog.handle_click(event.pos)
+                    if dialog_response == "ACCEPT_DRAW":
+                        self._handle_accept_draw()
+                    elif dialog_response == "DECLINE_DRAW":
+                        self._handle_decline_draw()
                 continue
 
             # Promotion selection phase: only process promotion popup clicks
@@ -312,6 +366,15 @@ class GameController:
             # While waiting for server confirmation in online mode, block board input
             if self.is_online_game and self.waiting_for_server:
                 continue
+            
+            # Action panel button clicks (online only)
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if self.is_online_game:
+                    button_signal = self.action_panel_ui.handle_click(event.pos)
+                    if button_signal == "BTN_RESIGN":
+                        self._handle_resign_click()
+                    elif button_signal == "BTN_OFFER_DRAW":
+                        self._handle_offer_draw_click()
             
             # Mouse events (handled by InputHandler)
             action = self.input_handler.handle_event(event, self.game_state, self.turn_controller)
@@ -334,6 +397,83 @@ class GameController:
         elif action["type"] == "deselect":
             # Clear any selection (already handled by InputHandler)
             pass
+    
+    def _handle_resign_click(self):
+        """
+        Player clicked Resign button.
+        
+        Send resignation notification to server and wait for confirmation.
+        """
+        if not self.is_online_game or not self.network_client:
+            return
+        
+        # Send resignation packet
+        self.network_client.send({
+            "action": "RESIGN",
+            "player": self.online_color
+        })
+        
+        # Lock board input while waiting for server confirmation
+        self.waiting_for_server = True
+    
+    def _handle_offer_draw_click(self):
+        """
+        Player clicked Offer Draw button.
+        
+        Send draw offer to server and set cooldown to prevent spam.
+        """
+        if not self.is_online_game or not self.network_client:
+            return
+        
+        # Send draw offer packet
+        self.network_client.send({
+            "action": "OFFER_DRAW",
+            "player": self.online_color
+        })
+        
+        # Set cooldown to prevent spam
+        self.action_panel_ui.set_draw_offer_cooldown(10.0)
+    
+    def _handle_accept_draw(self):
+        """
+        Player accepted the draw offer from opponent.
+        
+        Send acceptance to server and end game with draw result.
+        """
+        if not self.is_online_game or not self.network_client:
+            return
+        
+        # Send acceptance packet
+        self.network_client.send({
+            "action": "ACCEPT_DRAW",
+            "player": self.online_color
+        })
+        
+        # Close dialog and wait for server game-over confirmation
+        self.is_showing_draw_dialog = False
+        self.pending_draw_offer_from_opponent = False
+        self.draw_offer_dialog.close()
+        self.waiting_for_server = True
+    
+    def _handle_decline_draw(self):
+        """
+        Player declined the draw offer from opponent.
+        
+        Send declination to server and resume game.
+        """
+        if not self.is_online_game or not self.network_client:
+            return
+        
+        # Send declination packet
+        self.network_client.send({
+            "action": "DECLINE_DRAW",
+            "player": self.online_color
+        })
+        
+        # Close dialog and resume game
+        self.is_showing_draw_dialog = False
+        self.pending_draw_offer_from_opponent = False
+        self.draw_offer_dialog.close()
 
     @staticmethod
     def _promotion_code_to_piece_class(code):
@@ -656,6 +796,10 @@ class GameController:
         # Draw everything (board, pieces, highlights, sidebar, overlays)
         self.renderer.draw(self.screen, self.game_state, self.input_handler, self)
         
+        # Draw action panel (online only, above the sidebar)
+        if self.is_online_game:
+            self.action_panel_ui.draw(self.screen)
+        
         # Draw waiting overlay if online and waiting
         if self.is_online_game and self.waiting_for_opponent:
             overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
@@ -676,6 +820,10 @@ class GameController:
         # Draw promotion chooser on top of board/UI when active
         if self.is_promoting:
             self.promotion_dialog.draw(self.screen)
+        
+        # Draw draw offer dialog on top of everything when active
+        if self.is_showing_draw_dialog:
+            self.draw_offer_dialog.draw(self.screen)
         
         # Update display
         pygame.display.flip()
@@ -851,6 +999,13 @@ class GameController:
         self.pending_promotion_move = None
         self.waiting_for_server = False
         self.promotion_dialog.close()
+        
+        # Reset communication action state
+        self.draw_offer_cooldown = 0.0
+        self.is_showing_draw_dialog = False
+        self.pending_draw_offer_from_opponent = False
+        self.action_panel_ui.reset()
+        self.draw_offer_dialog.close()
     
     def enable_clock(self, time_per_player=300.0):
         """

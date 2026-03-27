@@ -99,7 +99,7 @@ class Renderer:
         self.draw_player_panels(screen, game_state, game_controller)
 
         # Draw game-over overlay
-        if game_state.is_checkmate or game_state.is_draw or game_state.timeout_winner:
+        if game_state.is_checkmate or game_state.is_draw or game_state.timeout_winner or game_state.resigned_player or game_state.is_draw_agreed:
             self.draw_game_over_overlay(screen, game_state)
 
     def draw_player_panels(self, screen, game_state, game_controller):
@@ -394,7 +394,16 @@ class Renderer:
         overlay.fill((0, 0, 0, 150))
         screen.blit(overlay, (0, 0))
 
-        if game_state.timeout_winner:
+        if game_state.resigned_player:
+            # Player resigned
+            title = "RESIGNATION"
+            winner = "White" if game_state.resigned_player == "black" else "Black"
+            subtitle = f"{winner} wins by resignation"
+        elif game_state.is_draw_agreed:
+            # Draw agreed by both players
+            title = "DRAW"
+            subtitle = "Draw by agreement"
+        elif game_state.timeout_winner:
             title = "TIME OUT"
             subtitle = f"{game_state.timeout_winner.capitalize()} wins on time"
         elif game_state.is_checkmate:

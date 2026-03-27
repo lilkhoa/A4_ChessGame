@@ -28,6 +28,14 @@ def _promotion_to_class(promotion_piece):
     return promotion_piece
 
 class GameState:
+    # Endgame Status Constants
+    CHECKMATE = "checkmate"
+    STALEMATE = "stalemate"
+    RESIGNED_WHITE = "resigned_white"
+    RESIGNED_BLACK = "resigned_black"
+    DRAW_AGREED = "draw_agreed"
+    TIMEOUT = "timeout"
+    
     def __init__(self, board_obj, rules=None):
 
         self.board_obj = board_obj
@@ -43,6 +51,8 @@ class GameState:
         self.is_draw = False
         self.draw_reason = None
         self.timeout_winner = None
+        self.resigned_player = None  # "white" or "black" if someone resigned
+        self.is_draw_agreed = False  # True if draw was accepted by both players
 
         self.white_time = 300.0
         self.black_time = 300.0
@@ -57,7 +67,8 @@ class GameState:
         """
             Check whether game is over
         """
-        return self.is_checkmate or self.is_draw or self.timeout_winner is not None
+        return (self.is_checkmate or self.is_draw or self.timeout_winner is not None 
+                or self.resigned_player is not None or self.is_draw_agreed)
 
     def process_move(self, start_pos, end_pos, promotion_piece=None):
         """
