@@ -7,7 +7,7 @@ class TurnController:
     Controls the turn-based flow of the chess game.
     """
     
-    def __init__(self, game_state, rules, board):
+    def __init__(self, game_state, rules, board, timer=None):
         """
         Initialize the turn controller.
         
@@ -15,15 +15,17 @@ class TurnController:
             game_state: The game state object
             rules: The rules engine
             board: The board object
+            timer: Optional Timer object for clock management
         """
         self.game_state = game_state
         self.rules = rules
         self.board = board
+        self.timer = timer
         
         # Player tracking
         self.current_player = 'white'
         
-        # Clock management
+        # Clock management (legacy - for backwards compatibility)
         self.white_time_remaining = 600.0
         self.black_time_remaining = 600.0
         self.white_clock_start = None
@@ -173,6 +175,10 @@ class TurnController:
         self.current_player = 'black' if self.current_player == 'white' else 'white'
         self.move_count += 1
         
+        # Switch timer to the new current player
+        if self.timer:
+            self.timer.switch_turn()
+        
         # Update game state if it exists
         if hasattr(self.game_state, 'current_turn'):
             self.game_state.current_turn = self.current_player
@@ -183,7 +189,8 @@ class TurnController:
         """
         Check if the game is over after a turn switch.
         
-        Checks for:
+        Checks for (in order):
+        - Time out (if timer is enabled)
         - Checkmate
         - Stalemate
         - Draw (threefold repetition, fifty-move rule, insufficient material)
@@ -191,6 +198,20 @@ class TurnController:
         Returns:
             dict: Game status information
         """
+        # Check for timeout first (server-side timeout takes precedence)
+        if self.timer and self.timer.is_timeout():
+            self.game_over = True
+            timed_out_color = self.timer.is_timeout()
+            self.winner = 'black' if timed_out_color == 'white' else 'white'
+            self.game_over_reason = 'timeout'
+            self.game_state.timeout_winner = self.winner
+            return {
+                'status': 'timeout',
+                'timed_out_player': timed_out_color,
+                'winner': self.winner,
+                'message': f'{timed_out_color.capitalize()} ran out of time. {self.winner.capitalize()} wins!'
+            }
+        
         current_color = self.current_player
         
         # Update game_state's game over flags
@@ -354,6 +375,11 @@ class TurnController:
         Returns:
             float: Time remaining in seconds
         """
+        # If timer exists, use it (new system)
+        if self.timer:
+            return self.timer.get_remaining_time(color)
+        
+        # Otherwise use legacy clock system
         if not self.clock_enabled:
             return float('inf')
         

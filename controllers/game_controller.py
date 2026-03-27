@@ -2,11 +2,13 @@ import pygame
 from core.board import Board
 from core.game_state import GameState
 from core.rules import Rules
+from core.timer import Timer
 from core.save_manager import SaveManager
 from core.sound_manager import SoundManager
 from controllers.turn_controller import TurnController
 from ui.renderer import Renderer
 from ui.input_handler import InputHandler
+from ui.timer_ui import TimerUI
 from ui.menu import MainMenu
 from ui.pause_menu import PauseMenu
 from ui.promotion_dialog import PromotionDialog
@@ -31,14 +33,22 @@ class GameController:
         self.board = Board()
         self.rules = Rules()
         self.game_state = GameState(self.board, rules=self.rules)
+        
+        # Initialize timer
+        self.timer = Timer(white_time_seconds=300.0, black_time_seconds=300.0, increment_seconds=0.0)
+        
         self.turn_controller = TurnController(
             game_state=self.game_state,
             rules=self.rules,
-            board=self.board
+            board=self.board,
+            timer=self.timer
         )
         
         # Initialize UI components
         self.renderer = Renderer()
+        self.timer_ui = TimerUI(self.timer, self.renderer.font_heading)
+        # Update renderer with timer_ui instance
+        self.renderer.timer_ui = self.timer_ui
         self.input_handler = InputHandler()
         self.main_menu = MainMenu()
         self.pause_menu = PauseMenu()
@@ -170,7 +180,7 @@ class GameController:
             elif action == "move":
                 start_pos = tuple(event.get("start"))
                 end_pos = tuple(event.get("end"))
-                network_promo = event.get("promotion")
+                network_promotion = event.get("promotion")
                 
                 self.is_receiving_network_move = True
                 self._attempt_move(start_pos, end_pos, network_promotion)
@@ -192,7 +202,14 @@ class GameController:
         if self.turn_controller._is_ai_turn():
             self.turn_controller._trigger_ai()
         
+        # Start the timer when game begins
+        if self.timer:
+            self.timer.start()
+        
         while self.running and self.app_state == "playing":
+            # Calculate delta time for this frame
+            delta_time = self.clock.tick(FPS) / 1000.0  # Convert ms to seconds
+            
             # Process network socket buffer into events
             if self.is_online_game:
                 self._handle_network_events()
@@ -203,14 +220,16 @@ class GameController:
             # Check for pending AI moves and execute them
             self._check_and_execute_ai_move()
             
+            # Update: Timer tick (decrement current player's time)
+            if self.timer:
+                self.timer.tick(delta_time)
+                self.timer_ui.tick(delta_time)
+            
             # Update: Sync timer values from turn_controller to game_state
             self._update_timers()
             
             # Render: Draw the current game state
             self._render()
-            
-            # Control frame rate
-            self.clock.tick(FPS)
     
     def _handle_events(self):
         """Process all input events from the player."""
@@ -406,11 +425,28 @@ class GameController:
     
     def _update_timers(self):
         """
-        Update game_state timer values from turn_controller.
+        Update game_state timer values from timer object.
         
         This syncs the dynamic timer values so the renderer can display them.
         """
-        if self.turn_controller.clock_enabled:
+        if self.timer:
+            self.game_state.white_time = self.timer.white_time
+            self.game_state.black_time = self.timer.black_time
+            
+            # Check for timeout and update game state
+            if self.timer.is_timeout():
+                timed_out_player = self.timer.is_timeout()
+                self.game_state.timeout_winner = 'black' if timed_out_player == 'white' else 'white'
+            else:
+                self.game_state.timeout_winner = None
+            
+            # Play warning sound when time drops below 60 seconds
+            if self.timer.white_time < 60 and self.timer.white_time > 0:
+                self.sound_manager.play_ten_second_warning('white')
+            if self.timer.black_time < 60 and self.timer.black_time > 0:
+                self.sound_manager.play_ten_second_warning('black')
+        elif self.turn_controller.clock_enabled:
+            # Fallback to legacy system if no timer
             white_time = self.turn_controller.get_time_remaining('white')
             black_time = self.turn_controller.get_time_remaining('black')
             
@@ -624,10 +660,16 @@ class GameController:
         self.board = Board()
         self.rules = Rules()
         self.game_state = GameState(self.board, rules=self.rules)
+        
+        # Reset timer
+        self.timer.reset(white_time=self.time_per_player, black_time=self.time_per_player)
+        self.timer.stop()
+        
         self.turn_controller = TurnController(
             game_state=self.game_state,
             rules=self.rules,
-            board=self.board
+            board=self.board,
+            timer=self.timer
         )
         
         # Re-enable clock if it was enabled before
