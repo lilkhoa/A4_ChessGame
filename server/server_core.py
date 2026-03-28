@@ -86,7 +86,7 @@ class ChessServer:
             else:
                 await self.send_error(writer, f"Room {room_id} does not exist.")
                 
-        elif action in ["move", "chat", "resign", "draw_offer", "draw_accept"]:
+        elif action in ["chat", "resign", "draw_offer", "draw_accept"]:
             # Route generic game events/actions to the opponent in the same room
             room_id = self.client_rooms.get(writer)
             if room_id in self.rooms:
@@ -94,6 +94,25 @@ class ChessServer:
                 await room.broadcast(payload, sender_writer=writer)
             else:
                 await self.send_error(writer, "You are not in a room.")
+
+        elif action in ["move", "MOVE"]:
+            room_id = self.client_rooms.get(writer)
+            if room_id in self.rooms:
+                room: Room = self.rooms[room_id]
+                
+                # Starting counting time if this is the first move
+                if not room.is_running:
+                    room.start_game()
+                else:
+                    # Minus the time of the pla0yer who just moved and switch turn
+                    room.process_time_for_move()
+                
+                # Pin the exact time into Payload
+                payload["white_time"] = room.white_time
+                payload["black_time"] = room.black_time
+
+                # Send the move to the opponent with the updated time_info
+                await room.broadcast(payload, sender_writer=writer)
 
     async def disconnect_client(self, writer):
         """
