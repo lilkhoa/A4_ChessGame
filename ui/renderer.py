@@ -115,7 +115,7 @@ class Renderer:
             is_human_vs_human = False
             
         # In online mode, we also have names
-        if game_controller and getattr(game_controller, "online_mode", False):
+        if game_controller and getattr(game_controller, "is_online_game", False):
             is_human_vs_human = True
             
         # Get captured pieces

@@ -158,6 +158,16 @@ class MainMenu:
 
             self._draw(screen, has_save)
             pygame.display.flip()
+            
+            if self.state == "online_discovering":
+                if self.network_client and self.network_client.discover_and_connect_lan():
+                    self.state = "online_room_select"
+                else:
+                    self.error_message = "Không tìm thấy Server trên mạng nội bộ!"
+                    self.error_timer = pygame.time.get_ticks()
+                    self.state = "mode_select"
+                self._build_buttons(has_save)
+
             clock.tick(60)
 
     def _handle_text_input(self, event):
@@ -209,6 +219,9 @@ class MainMenu:
             elif action == "2p":
                 return {"action": "new_game", "mode": "2p", "difficulty": None}
             elif action == "online":
+                self.state = "online_discovering"
+                self._build_buttons(has_save)
+            elif action == "manual_ip":
                 self.state = "online_ip_input"
                 self.active_input = "ip"
                 self._build_buttons(has_save)
@@ -236,7 +249,7 @@ class MainMenu:
                 
         # ONLINE FLOW
         elif self.state == "online_ip_input":
-            if action == "back":
+            if action == "back" or action == "back_to_modes":
                 self.state = "mode_select"
                 self._build_buttons(has_save)
             elif action == "connect_ip":
@@ -244,7 +257,7 @@ class MainMenu:
                 if not ip:
                     ip = "127.0.0.1"
                 try:
-                    port = 5055
+                    port = 8888
                     if ":" in ip:
                         ip, port_str = ip.split(":")
                         port = int(port_str)
@@ -320,8 +333,12 @@ class MainMenu:
                     "enabled": True, "rect": pygame.Rect(cx - btn_w // 2, start_y + 108, btn_w, btn_h),
                 },
                 {
-                    "label": "Back", "action": "back",
+                    "label": "Manual Connect IP", "action": "manual_ip",
                     "enabled": True, "rect": pygame.Rect(cx - btn_w // 2, start_y + 180, btn_w, btn_h),
+                },
+                {
+                    "label": "Back", "action": "back",
+                    "enabled": True, "rect": pygame.Rect(cx - btn_w // 2, start_y + 252, btn_w, btn_h),
                 },
             ]
             self.selected_index = 0
@@ -411,6 +428,7 @@ class MainMenu:
         if self.state == "mode_select": subtitle_text = "Select Game Mode"
         elif self.state == "difficulty_select": subtitle_text = "Select AI Difficulty"
         elif self.state == "side_select": subtitle_text = "Select Your Side"
+        elif self.state == "online_discovering": subtitle_text = "Looking for local games..."
         elif self.state == "online_ip_input": subtitle_text = "Connect to Server"
         elif self.state == "online_room_select": subtitle_text = "Multiplayer Rooms"
         elif self.state == "online_lobby": subtitle_text = "Lobby Waiting Room"

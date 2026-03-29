@@ -11,6 +11,13 @@ class ChessServer:
         addr = writer.get_extra_info('peername')
         print(f"[Server] Client connected: {addr}")
         
+        # Send welcome message with a unique client ID (based on object memory)
+        client_id = str(id(writer))
+        await self.send_message(writer, {
+            "type": "WELCOME",
+            "client_id": client_id
+        })
+        
         try:
             while True:
                 data = await reader.readline()
@@ -40,9 +47,13 @@ class ChessServer:
         """
         Routes the parsed JSON payload to the corresponding action.
         """
-        action = payload.get("action")
+        # Support both 'type' and 'action' for protocol flexibility
+        action = payload.get("type") or payload.get("action")
         
-        if action == "create_room":
+        if not action:
+            return
+        
+        if action == "CREATE_ROOM":
             room_id = Room.generate_room_id()
             while room_id in self.rooms:
                 room_id = Room.generate_room_id()
@@ -53,12 +64,13 @@ class ChessServer:
             self.client_rooms[writer] = room_id
             
             await self.send_message(writer, {
-                "action": "room_created",
-                "room_id": room_id
+                "type": "ROOM_CREATED",
+                "room_id": room_id,
+                "color": "white"
             })
             print(f"[Server] Room {room_id} created by {writer.get_extra_info('peername')}")
             
-        elif action == "join_room":
+        elif action == "JOIN_ROOM":
             room_id = payload.get("room_id")
             if room_id in self.rooms:
                 room = self.rooms[room_id]
@@ -68,17 +80,24 @@ class ChessServer:
                     
                     # Target color logic can be improved, but usually creator is white and joiner is black
                     await self.send_message(writer, {
-                        "action": "room_joined",
+                        "type": "ROOM_JOINED",
                         "room_id": room_id,
                         "color": "black" 
                     })
                     
                     # Notify player 1 that the opponent joined
                     await room.broadcast({
-                        "action": "opponent_joined",
+                        "type": "OPPONENT_JOINED",
                         "room_id": room_id,
                         "color": "white"
                     }, sender_writer=writer)
+                    
+                    # Notify both that game can start now
+                    await room.broadcast({
+                        "type": "GAME_START",
+                        "room_id": room_id
+                    })
+                    print(f"[Server] Room {room_id} is full. Game starting.")
                     
                     print(f"[Server] Client joined room {room_id}")
                 else:
@@ -86,11 +105,14 @@ class ChessServer:
             else:
                 await self.send_error(writer, f"Room {room_id} does not exist.")
                 
-        elif action in ["chat", "resign", "draw_offer", "draw_accept"]:
+        elif action in ["chat", "RESIGN", "OFFER_DRAW", "ACCEPT_DRAW", "DECLINE_DRAW"]:
             # Route generic game events/actions to the opponent in the same room
             room_id = self.client_rooms.get(writer)
             if room_id in self.rooms:
                 room = self.rooms[room_id]
+                # Ensure we use 'type' key in the outgoing message
+                if "action" in payload and "type" not in payload:
+                    payload["type"] = payload.pop("action")
                 await room.broadcast(payload, sender_writer=writer)
             else:
                 await self.send_error(writer, "You are not in a room.")
@@ -127,7 +149,7 @@ class ChessServer:
             # Notify remaining player
             if len(room.players) > 0:
                 await room.broadcast({
-                    "action": "opponent_disconnected"
+                    "type": "OPPONENT_DISCONNECTED"
                 })
             else:
                 # Discard the room safely from server memory
@@ -154,3 +176,25 @@ class ChessServer:
 
     async def send_error(self, writer, error_msg):
         await self.send_message(writer, {"action": "error", "message": error_msg})
+
+class DiscoveryProtocol(asyncio.DatagramProtocol):
+    """
+    Handles UDP broadcasts to help local clients find the server without typing IP.
+    """
+    def __init__(self, tcp_port=8888):
+        self.tcp_port = tcp_port
+        self.transport = None
+
+    def connection_made(self, transport):
+        self.transport = transport
+
+    def datagram_received(self, data, addr):
+        try:
+            message = data.decode('utf-8')
+            print(f"[Discovery] Received UDP message: '{message}' from {addr}")
+            if message == "CHESS_DISCOVER":
+                response = f"CHESS_SERVER_TCP:{self.tcp_port}"
+                self.transport.sendto(response.encode('utf-8'), addr)
+                print(f"[Discovery] Sent response: '{response}' to {addr}")
+        except Exception as e:
+            print(f"[Discovery] Error responding to {addr}: {e}")
