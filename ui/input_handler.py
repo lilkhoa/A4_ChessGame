@@ -18,7 +18,7 @@ class InputHandler:
         self.mouse_pos = (0, 0)       # Current mouse position for drag rendering
         self.reversed_view = False    # Whether board is reversed for black player
 
-    def handle_event(self, event, game_state, turn_controller=None):
+    def handle_event(self, event, game_state, turn_controller=None, is_online_opponent_turn=False):
         """
         Process a Pygame event and return an action dict if a move is attempted.
 
@@ -34,21 +34,20 @@ class InputHandler:
                 None if no actionable event occurred
         """
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            return self._handle_mouse_down(event.pos, game_state, turn_controller)
+            return self._handle_mouse_down(event.pos, game_state, turn_controller, is_online_opponent_turn)
 
         elif event.type == pygame.MOUSEMOTION:
             self.mouse_pos = event.pos
             return None
 
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-            return self._handle_mouse_up(event.pos, game_state, turn_controller)
+            return self._handle_mouse_up(event.pos, game_state, turn_controller, is_online_opponent_turn)
 
         return None
 
-    def _handle_mouse_down(self, mouse_pos, game_state, turn_controller=None):
+    def _handle_mouse_down(self, mouse_pos, game_state, turn_controller=None, is_online_opponent_turn=False):
         """Handle left mouse button press."""
-        # Block input if it's the AI's turn
-        if turn_controller and turn_controller._is_ai_turn():
+        if (turn_controller and turn_controller._is_ai_turn()) or is_online_opponent_turn:
             self._clear_selection()
             return {"type": "deselect"}
             
@@ -89,10 +88,9 @@ class InputHandler:
                 self._select_piece(clicked_sq, piece, game_state)
             return None
 
-    def _handle_mouse_up(self, mouse_pos, game_state, turn_controller=None):
+    def _handle_mouse_up(self, mouse_pos, game_state, turn_controller=None, is_online_opponent_turn=False):
         """Handle left mouse button release (for drag-and-drop)."""
-        # Block input if it's the AI's turn
-        if turn_controller and turn_controller._is_ai_turn():
+        if (turn_controller and turn_controller._is_ai_turn()) or is_online_opponent_turn:
             self.dragging = False
             self.drag_piece = None
             return None

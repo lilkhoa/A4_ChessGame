@@ -61,12 +61,8 @@ class Renderer:
             input_handler: InputHandler instance for selection/drag state
             game_controller: GameController instance for AI info (optional)
         """
-        # Determine if board should be reversed (player is black vs AI)
-        reversed_view = False
-        if game_controller and hasattr(game_controller, 'ai_agent') and game_controller.ai_agent:
-            # If AI is white, then human is black, so reverse the board
-            if game_controller.ai_color == 'white':
-                reversed_view = True
+        # Determine if board should be reversed (player is black vs AI or Online player is black)
+        reversed_view = input_handler.reversed_view
         
         # Draw the chessboard
         self.board_ui.draw_board(screen, reversed_view)
@@ -96,13 +92,13 @@ class Renderer:
             )
 
         # Draw new player panels sidebar
-        self.draw_player_panels(screen, game_state, game_controller)
+        self.draw_player_panels(screen, game_state, game_controller, reversed_view)
 
         # Draw game-over overlay
         if game_state.is_checkmate or game_state.is_draw or game_state.timeout_winner or game_state.resigned_player or game_state.is_draw_agreed:
             self.draw_game_over_overlay(screen, game_state)
 
-    def draw_player_panels(self, screen, game_state, game_controller):
+    def draw_player_panels(self, screen, game_state, game_controller, reversed_view=False):
         """Draw the new player panel design in the sidebar."""
         sidebar_rect = pygame.Rect(BOARD_WIDTH, 0, SIDEBAR_WIDTH, WINDOW_HEIGHT)
         pygame.draw.rect(screen, COLOR_SIDEBAR_BG, sidebar_rect)
@@ -117,10 +113,11 @@ class Renderer:
             ai_color = game_controller.ai_color
             ai_name = game_controller.ai_agent.name
             is_human_vs_human = False
-            # If AI is white, human is black, so reverse the board view
-            if ai_color == 'white':
-                reversed_view = True
-        
+            
+        # In online mode, we also have names
+        if game_controller and getattr(game_controller, "online_mode", False):
+            is_human_vs_human = True
+            
         # Get captured pieces
         white_captured, black_captured = self._get_captured_pieces(game_state)
         

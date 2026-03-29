@@ -13,12 +13,8 @@ from ui.timer_ui import TimerUI
 from ui.menu import MainMenu
 from ui.pause_menu import PauseMenu
 from ui.promotion_dialog import PromotionDialog
-from ui.action_panel_ui import ActionPanelUI
-from ui.dialog_ui import DrawOfferDialog
-from pieces.queen import Queen
-from pieces.rook import Rook
-from pieces.bishop import Bishop
-from pieces.knight import Knight
+from ui.animation import Animation
+from network.client import NetworkClient
 from config import WINDOW_WIDTH, WINDOW_HEIGHT, FPS, COLOR_BG
 
 
@@ -60,8 +56,10 @@ class GameController:
         self.main_menu = MainMenu()
         self.pause_menu = PauseMenu()
         self.promotion_dialog = PromotionDialog(self.renderer.piece_ui)
-        self.action_panel_ui = ActionPanelUI()
-        self.draw_offer_dialog = DrawOfferDialog()
+        self.animation = Animation()
+        self.network_client = NetworkClient()
+        self.online_mode = False
+        self.my_color = None
         
         # Initialize Sound Manager
         self.sound_manager = SoundManager()
@@ -122,7 +120,7 @@ class GameController:
     def _run_menu(self):
         """Show the main menu and handle user choice."""
         has_save = SaveManager.has_save()
-        payload = self.main_menu.show(self.screen, self.clock, has_save=has_save)
+        payload = self.main_menu.show(self.screen, self.clock, has_save=has_save, network_client=self.network_client)
         
         if not payload:
             return
@@ -135,14 +133,14 @@ class GameController:
             player_color = payload.get("player_color", 'white')
             
             if mode == "online":
-                self._setup_online_game(payload)
+                self.online_mode = True
+                self.my_color = player_color
+                self._start_new_game(mode="online", player_color=player_color)
             else:
-                self.is_online_game = False
-                if self.network_client:
-                    self.network_client.disconnect()
-                    self.network_client = None
+                self.online_mode = False
+                self.my_color = None
                 self._start_new_game(mode, difficulty, player_color)
-                self.app_state = "playing"
+            self.app_state = "playing"
         elif action == "continue":
             success = self._load_saved_game()
             if success:
@@ -290,12 +288,9 @@ class GameController:
             self.timer.start()
         
         while self.running and self.app_state == "playing":
-            # Calculate delta time for this frame
-            delta_time = self.clock.tick(FPS) / 1000.0  # Convert ms to seconds
-            
-            # Process network socket buffer into events
-            if self.is_online_game:
-                self._handle_network_events()
+            # Network processing
+            if self.online_mode and self.network_client:
+                self._process_network_messages()
                 
             # Input: Process all events
             self._handle_events()
@@ -376,8 +371,10 @@ class GameController:
                     elif button_signal == "BTN_OFFER_DRAW":
                         self._handle_offer_draw_click()
             
+            is_online_opponent_turn = self.online_mode and self.turn_controller.current_player != self.my_color
+            
             # Mouse events (handled by InputHandler)
-            action = self.input_handler.handle_event(event, self.game_state, self.turn_controller)
+            action = self.input_handler.handle_event(event, self.game_state, self.turn_controller, is_online_opponent_turn)
             
             if action is not None:
                 self._process_action(action)
@@ -398,32 +395,26 @@ class GameController:
             # Clear any selection (already handled by InputHandler)
             pass
     
-    def _handle_resign_click(self):
+    def _attempt_move(self, start_pos, end_pos, remote_promotion=None, is_network_move=False):
         """
-        Player clicked Resign button.
-        
-        Send resignation notification to server and wait for confirmation.
+        Attempt to execute a move from start_pos to end_pos.
         """
-        if not self.is_online_game or not self.network_client:
-            return
+        last_move_index = len(self.game_state.move_log)
         
-        # Send resignation packet
-        self.network_client.send({
-            "action": "RESIGN",
-            "player": self.online_color
-        })
+        promotion_piece = remote_promotion
+        piece = self.game_state.board[start_pos[0]][start_pos[1]]
+        if piece and piece.name == "pawn" and not is_network_move:
+            end_row = end_pos[0]
+            if end_row == 0 or end_row == 7:
+                is_ai_turn = (self.turn_controller.ai_enabled and 
+                              self.turn_controller.ai_color == self.game_state.current_turn)
+                if not is_ai_turn:
+                    self._render()  
+                    promotion_piece = self.promotion_dialog.show(
+                        self.screen, self.clock, piece.color, end_pos[1]
+                    )
         
-        # Lock board input while waiting for server confirmation
-        self.waiting_for_server = True
-    
-    def _handle_offer_draw_click(self):
-        """
-        Player clicked Offer Draw button.
-        
-        Send draw offer to server and set cooldown to prevent spam.
-        """
-        if not self.is_online_game or not self.network_client:
-            return
+        move_successful = self.game_state.process_move(start_pos, end_pos, promotion_piece)
         
         # Send draw offer packet
         self.network_client.send({
@@ -565,6 +556,9 @@ class GameController:
         move_successful = self.game_state.process_move(start_pos, end_pos, promotion_piece)
 
         if move_successful:
+            if not is_network_move and self.online_mode and self.network_client:
+                self.network_client.send_move(start_pos, end_pos, promotion_piece)
+                
             if last_move_index < len(self.game_state.move_log):
                 last_move = self.game_state.move_log[-1]
                 self._play_move_sound(last_move)
@@ -663,11 +657,23 @@ class GameController:
         status_type = game_status.get('status', 'unknown')
         message = game_status.get('message', 'Game over')
         
+        if getattr(self, "online_mode", False) and getattr(self, "my_color", None):
+            winner = game_status.get('winner')
+            if winner == self.my_color:
+                message = "Bạn đã thắng!"
+            elif winner and winner != self.my_color:
+                message = "Bạn đã thua!"
+            elif status_type in ["draw", "stalemate", "threefold_repetition", "fifty_move_rule", "insufficient_material"]:
+                message = "Hòa!"
+
         # Play game end sound
         self.sound_manager.play_game_end()
         
         # Log game over for debugging
         print(f"Game Over: {message} (Status: {status_type})")
+        
+        # Record popup to be shown during render
+        self.end_game_popup = {"status": status_type, "message": message}
         
         # Delete save file when game is over
         SaveManager.delete_save()
@@ -796,37 +802,52 @@ class GameController:
         # Draw everything (board, pieces, highlights, sidebar, overlays)
         self.renderer.draw(self.screen, self.game_state, self.input_handler, self)
         
-        # Draw action panel (online only, above the sidebar)
-        if self.is_online_game:
-            self.action_panel_ui.draw(self.screen)
-        
-        # Draw waiting overlay if online and waiting
-        if self.is_online_game and self.waiting_for_opponent:
-            overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
-            overlay.fill((0, 0, 0, 180))
-            self.screen.blit(overlay, (0, 0))
+        if hasattr(self, 'end_game_popup') and self.end_game_popup:
+            self._draw_popup(self.end_game_popup["message"])
             
-            font = pygame.font.SysFont("Segoe UI", 48, bold=True)
-            if self.online_room_id:
-                text = f"Room: {self.online_room_id} - Waiting for opponent..."
-            else:
-                text = "Connecting to server..."
-            
-            text_surf = font.render(text, True, (255, 255, 255))
-            cx = WINDOW_WIDTH // 2 - text_surf.get_width() // 2
-            cy = WINDOW_HEIGHT // 2 - text_surf.get_height() // 2
-            self.screen.blit(text_surf, (cx, cy))
-
-        # Draw promotion chooser on top of board/UI when active
-        if self.is_promoting:
-            self.promotion_dialog.draw(self.screen)
-        
-        # Draw draw offer dialog on top of everything when active
-        if self.is_showing_draw_dialog:
-            self.draw_offer_dialog.draw(self.screen)
-        
-        # Update display
         pygame.display.flip()
+
+    def _draw_popup(self, message):
+        font = pygame.font.SysFont("Segoe UI", 36, bold=True)
+        text_surf = font.render(message, True, (255, 255, 255))
+        rect_w = text_surf.get_width() + 60
+        rect_h = 100
+        cx, cy = self.screen.get_width() // 2, self.screen.get_height() // 2
+        
+        overlay = pygame.Surface((self.screen.get_width(), self.screen.get_height()), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        self.screen.blit(overlay, (0, 0))
+        
+        popup_rect = pygame.Rect(cx - rect_w//2, cy - rect_h//2, rect_w, rect_h)
+        pygame.draw.rect(self.screen, (40, 40, 45), popup_rect, border_radius=12)
+        pygame.draw.rect(self.screen, (255, 215, 0), popup_rect, 3, border_radius=12)
+        self.screen.blit(text_surf, (cx - text_surf.get_width()//2, cy - text_surf.get_height()//2))
+
+    def _process_network_messages(self):
+        msg = self.network_client.poll_message()
+        while msg:
+            msg_type = msg.get("type")
+            if msg_type == "MOVE":
+                start_pos = tuple(msg.get("start"))
+                end_pos = tuple(msg.get("end"))
+                promotion = msg.get("promotion")
+                
+                piece = self.game_state.board[start_pos[0]][start_pos[1]]
+                if piece:
+                    self.animation.animate_move(
+                        self.screen, self.renderer.board_ui, self.renderer.piece_ui,
+                        piece, start_pos, end_pos, self.game_state.board,
+                        self.game_state, self.clock, 
+                        draw_callback=lambda: self.renderer.draw_player_panels(self.screen, self.game_state, self)
+                    )
+                
+                self._attempt_move(start_pos, end_pos, remote_promotion=promotion, is_network_move=True)
+            elif msg_type == "OPPONENT_DISCONNECTED":
+                # Only show if not game over already
+                if not self.game_state.is_game_over:
+                    self._handle_game_over({"status": "disconnect", "message": "Đối thủ đã mất kết nối"})
+                    
+            msg = self.network_client.poll_message()
 
     # ==================== Pause State ====================
 
@@ -866,8 +887,9 @@ class GameController:
                 self.turn_controller._stop_clock(self.turn_controller.current_player)
             SaveManager.save_game(self)
             print("Game auto-saved on exit.")
-        self.running = False
         self.app_state = "quit"
+        if getattr(self, "network_client", None):
+            self.network_client.disconnect()
 
     def _load_saved_game(self):
         """
@@ -942,11 +964,15 @@ class GameController:
             # Update input handler's reversed view (reverse if player is black)
             self.input_handler.reversed_view = (player_color == 'black')
         elif mode == "2p":
-            # Clear AI for local multiplayer
             self.ai_agent = None
             self.ai_color = None
             self.input_handler.reversed_view = False
-
+        elif mode == "online":
+            self.ai_agent = None
+            self.ai_color = None
+            self.input_handler.reversed_view = (player_color == 'black')
+            
+        self.end_game_popup = None
         self._reset_game()
         # Delete any existing save since we're starting fresh
         SaveManager.delete_save()
