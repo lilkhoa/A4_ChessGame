@@ -10,6 +10,8 @@ from ui.input_handler import InputHandler
 from ui.menu import MainMenu
 from ui.pause_menu import PauseMenu
 from ui.promotion_dialog import PromotionDialog
+from ui.animation import Animation
+from network.client import NetworkClient
 from config import WINDOW_WIDTH, WINDOW_HEIGHT, FPS, COLOR_BG
 
 
@@ -43,6 +45,10 @@ class GameController:
         self.main_menu = MainMenu()
         self.pause_menu = PauseMenu()
         self.promotion_dialog = PromotionDialog(self.renderer.piece_ui)
+        self.animation = Animation()
+        self.network_client = NetworkClient()
+        self.online_mode = False
+        self.my_color = None
         
         # Initialize Sound Manager
         self.sound_manager = SoundManager()
@@ -85,7 +91,7 @@ class GameController:
     def _run_menu(self):
         """Show the main menu and handle user choice."""
         has_save = SaveManager.has_save()
-        payload = self.main_menu.show(self.screen, self.clock, has_save=has_save)
+        payload = self.main_menu.show(self.screen, self.clock, has_save=has_save, network_client=self.network_client)
         
         if not payload:
             return
@@ -96,7 +102,15 @@ class GameController:
             mode = payload.get("mode", "2p")
             difficulty = payload.get("difficulty")
             player_color = payload.get("player_color", 'white')
-            self._start_new_game(mode, difficulty, player_color)
+            
+            if mode == "online":
+                self.online_mode = True
+                self.my_color = player_color
+                self._start_new_game(mode="online", player_color=player_color)
+            else:
+                self.online_mode = False
+                self.my_color = None
+                self._start_new_game(mode, difficulty, player_color)
             self.app_state = "playing"
         elif action == "continue":
             success = self._load_saved_game()
@@ -119,6 +133,10 @@ class GameController:
             self.turn_controller._trigger_ai()
         
         while self.running and self.app_state == "playing":
+            # Network processing
+            if self.online_mode and self.network_client:
+                self._process_network_messages()
+                
             # Input: Process all events
             self._handle_events()
             
@@ -157,8 +175,10 @@ class GameController:
             if self.game_state.is_game_over:
                 continue
             
+            is_online_opponent_turn = self.online_mode and self.turn_controller.current_player != self.my_color
+            
             # Mouse events (handled by InputHandler)
-            action = self.input_handler.handle_event(event, self.game_state, self.turn_controller)
+            action = self.input_handler.handle_event(event, self.game_state, self.turn_controller, is_online_opponent_turn)
             
             if action is not None:
                 self._process_action(action)
@@ -179,44 +199,31 @@ class GameController:
             # Clear any selection (already handled by InputHandler)
             pass
     
-    def _attempt_move(self, start_pos, end_pos):
+    def _attempt_move(self, start_pos, end_pos, remote_promotion=None, is_network_move=False):
         """
         Attempt to execute a move from start_pos to end_pos.
-        
-        This is the core bridge function that:
-        1. Asks the core logic to validate and execute the move
-        2. Updates turn state if successful
-        3. Triggers UI updates
-        
-        Args:
-            start_pos: (row, col) starting position
-            end_pos: (row, col) ending position
         """
-        # Check the last move to determine sound to play
         last_move_index = len(self.game_state.move_log)
         
-        # Detect promotion: pawn reaching the last rank
-        promotion_piece = None
+        promotion_piece = remote_promotion
         piece = self.game_state.board[start_pos[0]][start_pos[1]]
-        if piece and piece.name == "pawn":
+        if piece and piece.name == "pawn" and not is_network_move:
             end_row = end_pos[0]
             if end_row == 0 or end_row == 7:
-                # Check if this is a human player's turn (not AI)
                 is_ai_turn = (self.turn_controller.ai_enabled and 
                               self.turn_controller.ai_color == self.game_state.current_turn)
                 if not is_ai_turn:
-                    # Show promotion dialog
-                    self._render()  # Render current board state first
+                    self._render()  
                     promotion_piece = self.promotion_dialog.show(
                         self.screen, self.clock, piece.color, end_pos[1]
                     )
-                # AI defaults to Queen (promotion_piece stays None → Board defaults to Queen)
         
-        # Ask the core to process the move
         move_successful = self.game_state.process_move(start_pos, end_pos, promotion_piece)
         
         if move_successful:
-            # Play appropriate sound based on move type
+            if not is_network_move and self.online_mode and self.network_client:
+                self.network_client.send_move(start_pos, end_pos, promotion_piece)
+                
             if last_move_index < len(self.game_state.move_log):
                 last_move = self.game_state.move_log[-1]
                 self._play_move_sound(last_move)
@@ -253,11 +260,23 @@ class GameController:
         status_type = game_status.get('status', 'unknown')
         message = game_status.get('message', 'Game over')
         
+        if getattr(self, "online_mode", False) and getattr(self, "my_color", None):
+            winner = game_status.get('winner')
+            if winner == self.my_color:
+                message = "Bạn đã thắng!"
+            elif winner and winner != self.my_color:
+                message = "Bạn đã thua!"
+            elif status_type in ["draw", "stalemate", "threefold_repetition", "fifty_move_rule", "insufficient_material"]:
+                message = "Hòa!"
+
         # Play game end sound
         self.sound_manager.play_game_end()
         
         # Log game over for debugging
         print(f"Game Over: {message} (Status: {status_type})")
+        
+        # Record popup to be shown during render
+        self.end_game_popup = {"status": status_type, "message": message}
         
         # Delete save file when game is over
         SaveManager.delete_save()
@@ -369,8 +388,52 @@ class GameController:
         # Draw everything (board, pieces, highlights, sidebar, overlays)
         self.renderer.draw(self.screen, self.game_state, self.input_handler, self)
         
-        # Update display
+        if hasattr(self, 'end_game_popup') and self.end_game_popup:
+            self._draw_popup(self.end_game_popup["message"])
+            
         pygame.display.flip()
+
+    def _draw_popup(self, message):
+        font = pygame.font.SysFont("Segoe UI", 36, bold=True)
+        text_surf = font.render(message, True, (255, 255, 255))
+        rect_w = text_surf.get_width() + 60
+        rect_h = 100
+        cx, cy = self.screen.get_width() // 2, self.screen.get_height() // 2
+        
+        overlay = pygame.Surface((self.screen.get_width(), self.screen.get_height()), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        self.screen.blit(overlay, (0, 0))
+        
+        popup_rect = pygame.Rect(cx - rect_w//2, cy - rect_h//2, rect_w, rect_h)
+        pygame.draw.rect(self.screen, (40, 40, 45), popup_rect, border_radius=12)
+        pygame.draw.rect(self.screen, (255, 215, 0), popup_rect, 3, border_radius=12)
+        self.screen.blit(text_surf, (cx - text_surf.get_width()//2, cy - text_surf.get_height()//2))
+
+    def _process_network_messages(self):
+        msg = self.network_client.poll_message()
+        while msg:
+            msg_type = msg.get("type")
+            if msg_type == "MOVE":
+                start_pos = tuple(msg.get("start"))
+                end_pos = tuple(msg.get("end"))
+                promotion = msg.get("promotion")
+                
+                piece = self.game_state.board[start_pos[0]][start_pos[1]]
+                if piece:
+                    self.animation.animate_move(
+                        self.screen, self.renderer.board_ui, self.renderer.piece_ui,
+                        piece, start_pos, end_pos, self.game_state.board,
+                        self.game_state, self.clock, 
+                        draw_callback=lambda: self.renderer.draw_player_panels(self.screen, self.game_state, self)
+                    )
+                
+                self._attempt_move(start_pos, end_pos, remote_promotion=promotion, is_network_move=True)
+            elif msg_type == "OPPONENT_DISCONNECTED":
+                # Only show if not game over already
+                if not self.game_state.is_game_over:
+                    self._handle_game_over({"status": "disconnect", "message": "Đối thủ đã mất kết nối"})
+                    
+            msg = self.network_client.poll_message()
 
     # ==================== Pause State ====================
 
@@ -410,8 +473,9 @@ class GameController:
                 self.turn_controller._stop_clock(self.turn_controller.current_player)
             SaveManager.save_game(self)
             print("Game auto-saved on exit.")
-        self.running = False
         self.app_state = "quit"
+        if getattr(self, "network_client", None):
+            self.network_client.disconnect()
 
     def _load_saved_game(self):
         """
@@ -486,11 +550,15 @@ class GameController:
             # Update input handler's reversed view (reverse if player is black)
             self.input_handler.reversed_view = (player_color == 'black')
         elif mode == "2p":
-            # Clear AI for local multiplayer
             self.ai_agent = None
             self.ai_color = None
             self.input_handler.reversed_view = False
-
+        elif mode == "online":
+            self.ai_agent = None
+            self.ai_color = None
+            self.input_handler.reversed_view = (player_color == 'black')
+            
+        self.end_game_popup = None
         self._reset_game()
         # Delete any existing save since we're starting fresh
         SaveManager.delete_save()
