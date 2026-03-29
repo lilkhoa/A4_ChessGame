@@ -27,7 +27,7 @@ class ActionPanelUI:
         self.button_width = 180
         self.button_height = 45
         self.start_x = BOARD_WIDTH + 15
-        self.start_y = 50
+        self.start_y = WINDOW_HEIGHT // 2 - 50
         self.button_spacing = 15
         
         # Resign button

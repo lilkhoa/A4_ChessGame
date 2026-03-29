@@ -64,8 +64,8 @@ class Animation:
             last_move_highlight = {"start": start_sq, "end": end_sq}
             board_ui.draw_highlights(screen, last_move=last_move_highlight)
 
-            # Draw all pieces except the animated one
-            piece_ui.draw_pieces(screen, board_grid, skip_pos=end_sq)
+            # Draw all pieces except the one currently moving
+            piece_ui.draw_pieces(screen, board_grid, skip_pos=start_sq)
 
             # Draw the animated piece at its interpolated position
             piece_ui.draw_piece_at(screen, piece, (current_x, current_y))

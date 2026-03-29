@@ -83,7 +83,7 @@ class Room:
             self.white_time = max(0.0, self.white_time - elapsed)
             self.current_turn = "black"
         else:
-            self.back_time = max(0.0, self.back_time - elapsed)
+            self.black_time = max(0.0, self.black_time - elapsed)
             self.current_turn = "white"                
     
     async def check_timeout_loop(self):
@@ -98,6 +98,7 @@ class Room:
 
                 now = time.time()
                 elapsed = now - self.last_move_time
+                timeout_player = None
                 if self.current_turn == "white" and (self.white_time - elapsed <= 0):
                     timeout_player = "white"
                     self.white_time = 0.0
