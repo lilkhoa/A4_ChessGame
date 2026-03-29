@@ -15,10 +15,11 @@ class Renderer:
     sidebar status panel, and game-over overlays.
     """
 
-    def __init__(self):
+    def __init__(self, timer_ui=None):
         self.board_ui = BoardUI()
         self.piece_ui = PieceUI()
         self.animation = Animation()
+        self.timer_ui = timer_ui
         self._setup_fonts()
         
         # Load avatars
@@ -94,7 +95,7 @@ class Renderer:
         self.draw_player_panels(screen, game_state, game_controller, reversed_view)
 
         # Draw game-over overlay
-        if game_state.is_checkmate or game_state.is_draw or game_state.timeout_winner:
+        if game_state.is_checkmate or game_state.is_draw or game_state.timeout_winner or game_state.resigned_player or game_state.is_draw_agreed:
             self.draw_game_over_overlay(screen, game_state)
 
     def draw_player_panels(self, screen, game_state, game_controller, reversed_view=False):
@@ -246,19 +247,26 @@ class Renderer:
         screen.blit(name_text, (name_x, name_y))
         
         # Timer (right side, same row as name)
-        timer_text = self._format_time(time_remaining)
-        if time_remaining <= 10.0 and time_remaining > 0:
-            timer_color = COLOR_DANGER
+        if self.timer_ui:
+            # Use TimerUI for rendering (cleaner separation of concerns)
+            timer_x = panel_rect.x + panel_rect.width - 65
+            timer_y = avatar_y
+            self.timer_ui.render_time(screen, timer_x, timer_y, time_remaining, is_active=False)
         else:
-            timer_color = COLOR_TEXT_PRIMARY
-        time_surface = self.font_heading.render(timer_text, True, timer_color)
-        time_x = panel_rect.x + panel_rect.width - time_surface.get_width() - 10
-        time_y = avatar_y
-        
-        # Timer background
-        timer_bg_rect = pygame.Rect(time_x - 5, time_y - 2, time_surface.get_width() + 10, time_surface.get_height() + 4)
-        pygame.draw.rect(screen, (40, 38, 35), timer_bg_rect, border_radius=4)
-        screen.blit(time_surface, (time_x, time_y))
+            # Fallback: inline rendering
+            timer_text = self._format_time(time_remaining)
+            if time_remaining <= 10.0 and time_remaining > 0:
+                timer_color = COLOR_DANGER
+            else:
+                timer_color = COLOR_TEXT_PRIMARY
+            time_surface = self.font_heading.render(timer_text, True, timer_color)
+            time_x = panel_rect.x + panel_rect.width - time_surface.get_width() - 10
+            time_y = avatar_y
+            
+            # Timer background
+            timer_bg_rect = pygame.Rect(time_x - 5, time_y - 2, time_surface.get_width() + 10, time_surface.get_height() + 4)
+            pygame.draw.rect(screen, (40, 38, 35), timer_bg_rect, border_radius=4)
+            screen.blit(time_surface, (time_x, time_y))
         
         # Captured pieces display (below avatar)
         captured_y = avatar_y + avatar_size + 15
@@ -383,7 +391,16 @@ class Renderer:
         overlay.fill((0, 0, 0, 150))
         screen.blit(overlay, (0, 0))
 
-        if game_state.timeout_winner:
+        if game_state.resigned_player:
+            # Player resigned
+            title = "RESIGNATION"
+            winner = "White" if game_state.resigned_player == "black" else "Black"
+            subtitle = f"{winner} wins by resignation"
+        elif game_state.is_draw_agreed:
+            # Draw agreed by both players
+            title = "DRAW"
+            subtitle = "Draw by agreement"
+        elif game_state.timeout_winner:
             title = "TIME OUT"
             subtitle = f"{game_state.timeout_winner.capitalize()} wins on time"
         elif game_state.is_checkmate:

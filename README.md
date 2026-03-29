@@ -33,6 +33,15 @@ Run the main game:
 python main.py
 ```
 
+### Starting the Server (Online Multiplayer)
+
+To host online games, you need to run the backend socket server parallel to the game:
+
+```bash
+python server/main.py
+```
+This starts the matchmaking service for generating and joining rooms.
+
 The game will open with a main menu where you can:
 - Start a new game (Player vs Player or Player vs AI)
 - Choose AI difficulty (Easy, Medium, Hard)

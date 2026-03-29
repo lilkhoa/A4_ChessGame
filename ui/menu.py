@@ -326,6 +326,17 @@ class MainMenu:
             ]
             self.selected_index = 0
             
+        elif self.state == "room_input":
+            self.buttons = [
+                {
+                    "label": "Cancel",
+                    "action": "back",
+                    "enabled": True,
+                    "rect": pygame.Rect(cx - btn_w // 2, start_y + 150, btn_w, btn_h),
+                }
+            ]
+            self.selected_index = 0
+            
         elif self.state == "difficulty_select":
             self.buttons = [
                 {"label": "Easy", "action": "easy", "enabled": True, "rect": pygame.Rect(cx - btn_w // 2, start_y - 36, btn_w, btn_h)},
