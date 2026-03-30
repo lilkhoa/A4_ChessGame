@@ -51,17 +51,49 @@ class NetworkClient:
             self.disconnect()
             return False
 
+    def discover_and_connect_lan(self, timeout=0.8, port=8889):
+        """Broadcasts UDP to find a running server on LAN and connects."""
+        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        udp_socket.settimeout(timeout)
+        
+        print(f"[Client] Searching for server on port {port}...")
+        try:
+            # Try both global broadcast and localhost to be safe
+            udp_socket.sendto(b"CHESS_DISCOVER", ("255.255.255.255", port))
+            udp_socket.sendto(b"CHESS_DISCOVER", ("127.0.0.1", port))
+            
+            while True:
+                data, addr = udp_socket.recvfrom(1024)
+                msg = data.decode('utf-8')
+                if msg.startswith("CHESS_SERVER_TCP:"):
+                    tcp_port = int(msg.split(":")[1])
+                    server_ip = addr[0]
+                    udp_socket.close()
+                    print(f"[Client] Discovered server at {server_ip}:{tcp_port}")
+                    return self.connect(server_ip, tcp_port)
+        except socket.timeout:
+            print("[Client] Discovery timeout - no server responded on LAN.")
+            # Smart Fallback: If on the same machine, try connecting to localhost directly
+            print("[Client] Trying smart fallback to localhost:8888...")
+            return self.connect("127.0.0.1", 8888)
+        except Exception as e:
+            logging.error(f"UDP Discovery error: {e}")
+        finally:
+            udp_socket.close()
+        return False
+
     def _receive_loop(self):
         """Background thread loop to continuously read from the socket."""
         buffer = ""
         while self.connected:
             try:
+                if not self.socket: break
                 data = self.socket.recv(1024)
                 if not data:
                     logging.info("Server disconnected")
                     self._handle_disconnect()
                     break
-                
                 buffer += data.decode('utf-8')
                 while '\n' in buffer:
                     line, buffer = buffer.split('\n', 1)
@@ -70,15 +102,15 @@ class NetworkClient:
                             msg = json.loads(line)
                             
                             # Intercept some state-altering messages automatically
-                            if msg.get('type') == 'ROOM_CREATED' or msg.get('type') == 'ROOM_JOINED':
+                            if msg.get('type') in ['ROOM_CREATED', 'ROOM_JOINED']:
                                 self.room_id = msg.get('room_id')
                                 self.my_color = msg.get('color')
                             
                             self.message_queue.put(msg)
                         except json.JSONDecodeError:
                             logging.error(f"Failed to parse JSON: {line}")
-            except ConnectionResetError:
-                logging.info("Connection reset by server")
+            except (ConnectionResetError, ConnectionAbortedError, OSError):
+                # Socket was closed or reset, exit thread silently
                 self._handle_disconnect()
                 break
             except Exception as e:

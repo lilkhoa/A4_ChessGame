@@ -14,6 +14,8 @@ from ui.menu import MainMenu
 from ui.pause_menu import PauseMenu
 from ui.promotion_dialog import PromotionDialog
 from ui.animation import Animation
+from ui.action_panel_ui import ActionPanelUI
+from ui.dialog_ui import DrawOfferDialog
 from network.client import NetworkClient
 from config import WINDOW_WIDTH, WINDOW_HEIGHT, FPS, COLOR_BG
 
@@ -56,10 +58,12 @@ class GameController:
         self.main_menu = MainMenu()
         self.pause_menu = PauseMenu()
         self.promotion_dialog = PromotionDialog(self.renderer.piece_ui)
+        self.action_panel_ui = ActionPanelUI()
+        self.draw_offer_dialog = DrawOfferDialog()
         self.animation = Animation()
         self.network_client = NetworkClient()
-        self.online_mode = False
-        self.my_color = None
+        self.is_online_game = False
+        self.online_color = None
         
         # Initialize Sound Manager
         self.sound_manager = SoundManager()
@@ -79,10 +83,7 @@ class GameController:
         self.ai_agent = None
         self.ai_color = None
 
-        # Network settings
-        self.network_client = None
-        self.is_online_game = False
-        self.online_color = None
+        # Network settings (already initialized above)
         self.online_room_id = None
         self.waiting_for_opponent = False
         self.is_receiving_network_move = False
@@ -288,8 +289,10 @@ class GameController:
             self.timer.start()
         
         while self.running and self.app_state == "playing":
+            delta_time = self.clock.tick(FPS) / 1000.0
+            
             # Network processing
-            if self.online_mode and self.network_client:
+            if self.is_online_game and self.network_client:
                 self._process_network_messages()
                 
             # Input: Process all events
@@ -371,7 +374,7 @@ class GameController:
                     elif button_signal == "BTN_OFFER_DRAW":
                         self._handle_offer_draw_click()
             
-            is_online_opponent_turn = self.online_mode and self.turn_controller.current_player != self.my_color
+            is_online_opponent_turn = self.is_online_game and self.turn_controller.current_player != self.online_color
             
             # Mouse events (handled by InputHandler)
             action = self.input_handler.handle_event(event, self.game_state, self.turn_controller, is_online_opponent_turn)
@@ -395,34 +398,24 @@ class GameController:
             # Clear any selection (already handled by InputHandler)
             pass
     
-    def _attempt_move(self, start_pos, end_pos, remote_promotion=None, is_network_move=False):
-        """
-        Attempt to execute a move from start_pos to end_pos.
-        """
-        last_move_index = len(self.game_state.move_log)
-        
-        promotion_piece = remote_promotion
-        piece = self.game_state.board[start_pos[0]][start_pos[1]]
-        if piece and piece.name == "pawn" and not is_network_move:
-            end_row = end_pos[0]
-            if end_row == 0 or end_row == 7:
-                is_ai_turn = (self.turn_controller.ai_enabled and 
-                              self.turn_controller.ai_color == self.game_state.current_turn)
-                if not is_ai_turn:
-                    self._render()  
-                    promotion_piece = self.promotion_dialog.show(
-                        self.screen, self.clock, piece.color, end_pos[1]
-                    )
-        
-        move_successful = self.game_state.process_move(start_pos, end_pos, promotion_piece)
-        
-        # Send draw offer packet
+    def _handle_resign_click(self):
+        """Player clicked resign button."""
+        if not self.is_online_game or not self.network_client:
+            return
         self.network_client.send({
-            "action": "OFFER_DRAW",
+            "type": "RESIGN",
             "player": self.online_color
         })
-        
-        # Set cooldown to prevent spam
+        self._handle_game_over({"status": "resign", "message": "Bạn đã đầu hàng!"})
+
+    def _handle_offer_draw_click(self):
+        """Player clicked offer draw button."""
+        if not self.is_online_game or not self.network_client:
+            return
+        self.network_client.send({
+            "type": "OFFER_DRAW",
+            "player": self.online_color
+        })
         self.action_panel_ui.set_draw_offer_cooldown(10.0)
     
     def _handle_accept_draw(self):
@@ -506,25 +499,7 @@ class GameController:
             reversed_view=self.input_handler.reversed_view,
         )
 
-    def _send_online_move_request(self, start_pos, end_pos, promotion_code=None):
-        """Send move request to server in compact and legacy-compatible formats."""
-        move_obj = Move(start_pos, end_pos, self.game_state.board, promotion_piece=promotion_code)
-        move_str = move_obj.to_network_format()
 
-        # Primary protocol (compact string form)
-        self.network_client.send({
-            "action": "MOVE",
-            "data": move_str,
-        })
-
-        # Backward compatibility payload for current relay servers
-        self.network_client.send({
-            "action": "move",
-            "start": start_pos,
-            "end": end_pos,
-            "promotion": promotion_code,
-            "move": move_str,
-        })
 
     def _finalize_pending_promotion(self, selected_code):
         """Finalize selected promotion and continue according to game mode."""
@@ -540,10 +515,8 @@ class GameController:
         self.promotion_dialog.close()
 
         if self.is_online_game and not self.is_receiving_network_move:
-            self._send_online_move_request(start_pos, end_pos, selected_code)
-            self.waiting_for_server = True
-            self.pending_promotion_move = None
-            return
+            # For online promotion, we apply first, then broadcast
+            pass # Continue to piece conversion below
 
         promotion_piece = self._promotion_code_to_piece_class(selected_code)
         self.pending_promotion_move = None
@@ -556,7 +529,7 @@ class GameController:
         move_successful = self.game_state.process_move(start_pos, end_pos, promotion_piece)
 
         if move_successful:
-            if not is_network_move and self.online_mode and self.network_client:
+            if not getattr(self, "is_receiving_network_move", False) and getattr(self, "is_online_game", False) and getattr(self, "network_client", None):
                 self.network_client.send_move(start_pos, end_pos, promotion_piece)
                 
             if last_move_index < len(self.game_state.move_log):
@@ -593,55 +566,35 @@ class GameController:
             start_pos: (row, col) starting position
             end_pos: (row, col) ending position
         """
-        # Local player in online mode: never mutate board before server confirmation.
+        # Online move validation for the local player
         if self.is_online_game and not self.is_receiving_network_move:
-            if self.waiting_for_opponent or self.waiting_for_server:
-                return
+            # Prevent moving out of turn
             if self.game_state.current_turn != self.online_color:
                 return
-
-            promotion_code = None
-            if network_promotion is not None:
-                if isinstance(network_promotion, str):
-                    promotion_code = network_promotion.upper()
-                else:
-                    promotion_code = self._piece_class_to_promotion_code(network_promotion)
-
-            piece = self.game_state.board[start_pos[0]][start_pos[1]]
-            is_ai_turn = (
-                self.turn_controller.ai_enabled and
-                self.turn_controller.ai_color == self.game_state.current_turn
-            )
-
-            if self.rules.is_promotion_move(self.board, start_pos, end_pos) and promotion_code is None:
-                if is_ai_turn:
-                    promotion_code = "Q"
-                else:
-                    self._queue_promotion_dialog(start_pos, end_pos, piece.color if piece else self.game_state.current_turn)
-                    return
-
-            self._send_online_move_request(start_pos, end_pos, promotion_code)
-            self.waiting_for_server = True
-            return
-
-        # Offline or server-authorized online move: apply immediately.
+            # Prevent moving if waiting for anything (optional, but keep for robustness)
+            if getattr(self, "waiting_for_opponent", False):
+                return
+                
+        # Handle Promotion logic (Unified for AI, Human, and Network)
         promotion_piece = network_promotion
-
-        # For offline human promotion, collect piece choice first.
-        if not self.is_online_game:
+        
+        # If it's a promotion move and we don't have a piece choice yet...
+        is_promo = self.rules.is_promotion_move(self.board, start_pos, end_pos)
+        if is_promo and promotion_piece is None:
             piece = self.game_state.board[start_pos[0]][start_pos[1]]
             is_ai_turn = (
                 self.turn_controller.ai_enabled and
                 self.turn_controller.ai_color == self.game_state.current_turn
             )
-            if self.rules.is_promotion_move(self.board, start_pos, end_pos) and promotion_piece is None:
-                if is_ai_turn:
-                    promotion_piece = Queen
-                else:
-                    self._queue_promotion_dialog(start_pos, end_pos, piece.color if piece else self.game_state.current_turn)
-                    return
-
-        # Convert promotion token from network to piece class if needed.
+            
+            if is_ai_turn:
+                promotion_piece = Queen
+            else:
+                # Trigger dialog for local human player (offline or online)
+                self._queue_promotion_dialog(start_pos, end_pos, piece.color if piece else self.game_state.current_turn)
+                return
+        
+        # Convert string token (e.g. 'Q') to Piece class if it came from network
         if isinstance(promotion_piece, str):
             promotion_piece = self._promotion_code_to_piece_class(promotion_piece)
 
@@ -657,11 +610,11 @@ class GameController:
         status_type = game_status.get('status', 'unknown')
         message = game_status.get('message', 'Game over')
         
-        if getattr(self, "online_mode", False) and getattr(self, "my_color", None):
+        if getattr(self, "is_online_game", False) and getattr(self, "online_color", None):
             winner = game_status.get('winner')
-            if winner == self.my_color:
+            if winner == self.online_color:
                 message = "Bạn đã thắng!"
-            elif winner and winner != self.my_color:
+            elif winner and winner != self.online_color:
                 message = "Bạn đã thua!"
             elif status_type in ["draw", "stalemate", "threefold_repetition", "fifty_move_rule", "insufficient_material"]:
                 message = "Hòa!"
@@ -802,6 +755,12 @@ class GameController:
         # Draw everything (board, pieces, highlights, sidebar, overlays)
         self.renderer.draw(self.screen, self.game_state, self.input_handler, self)
         
+        if getattr(self, "is_online_game", False) and not self.game_state.is_game_over:
+            self.action_panel_ui.draw(self.screen)
+            
+        if getattr(self, "is_showing_draw_dialog", False):
+            self.draw_offer_dialog.draw(self.screen)
+            
         if hasattr(self, 'end_game_popup') and self.end_game_popup:
             self._draw_popup(self.end_game_popup["message"])
             
@@ -824,30 +783,54 @@ class GameController:
         self.screen.blit(text_surf, (cx - text_surf.get_width()//2, cy - text_surf.get_height()//2))
 
     def _process_network_messages(self):
-        msg = self.network_client.poll_message()
-        while msg:
-            msg_type = msg.get("type")
-            if msg_type == "MOVE":
-                start_pos = tuple(msg.get("start"))
-                end_pos = tuple(msg.get("end"))
-                promotion = msg.get("promotion")
-                
-                piece = self.game_state.board[start_pos[0]][start_pos[1]]
-                if piece:
-                    self.animation.animate_move(
-                        self.screen, self.renderer.board_ui, self.renderer.piece_ui,
-                        piece, start_pos, end_pos, self.game_state.board,
-                        self.game_state, self.clock, 
-                        draw_callback=lambda: self.renderer.draw_player_panels(self.screen, self.game_state, self)
-                    )
-                
-                self._attempt_move(start_pos, end_pos, remote_promotion=promotion, is_network_move=True)
-            elif msg_type == "OPPONENT_DISCONNECTED":
-                # Only show if not game over already
-                if not self.game_state.is_game_over:
-                    self._handle_game_over({"status": "disconnect", "message": "Đối thủ đã mất kết nối"})
-                    
+        try:
             msg = self.network_client.poll_message()
+            while msg:
+                self._handle_single_network_message(msg)
+                msg = self.network_client.poll_message()
+        except Exception as e:
+            import logging
+            logging.error(f"Error processing network message: {e}")
+
+    def _handle_single_network_message(self, msg):
+        msg_type = msg.get("type")
+        if msg_type == "MOVE":
+            start_pos = tuple(msg.get("start"))
+            end_pos = tuple(msg.get("end"))
+            promotion = msg.get("promotion")
+            
+            piece = self.game_state.board[start_pos[0]][start_pos[1]]
+            if piece:
+                self.animation.animate_move(
+                    self.screen, self.renderer.board_ui, self.renderer.piece_ui,
+                    piece, start_pos, end_pos, self.game_state.board,
+                    self.game_state, self.clock, 
+                    draw_callback=lambda: self.renderer.draw_player_panels(self.screen, self.game_state, self)
+                )
+            
+            try:
+                self.is_receiving_network_move = True
+                self._attempt_move(start_pos, end_pos, network_promotion=promotion)
+            finally:
+                self.is_receiving_network_move = False
+        elif msg_type == "OPPONENT_DISCONNECTED":
+            # Only show if not game over already
+            if not self.game_state.is_game_over:
+                self._handle_game_over({"status": "disconnect", "message": "Đối thủ đã mất kết nối"})
+        elif msg_type == "RESIGN":
+            if not self.game_state.is_game_over:
+                self._handle_game_over({"status": "resign", "message": "Đối thủ đã đầu hàng!"})
+        elif msg_type == "OFFER_DRAW":
+            self.is_showing_draw_dialog = True
+            self.pending_draw_offer_from_opponent = True
+            self.draw_offer_dialog.open()
+        elif msg_type == "ACCEPT_DRAW":
+            self.is_showing_draw_dialog = False
+            self.pending_draw_offer_from_opponent = False
+            self.draw_offer_dialog.close()
+            self._handle_game_over({"status": "draw", "message": "Hòa (đồng ý)!"})
+        elif msg_type == "DECLINE_DRAW":
+            self.action_panel_ui.set_draw_offer_cooldown(10.0)
 
     # ==================== Pause State ====================
 
@@ -970,6 +953,8 @@ class GameController:
         elif mode == "online":
             self.ai_agent = None
             self.ai_color = None
+            self.is_online_game = True
+            self.online_color = player_color
             self.input_handler.reversed_view = (player_color == 'black')
             
         self.end_game_popup = None
