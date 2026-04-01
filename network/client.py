@@ -102,9 +102,11 @@ class NetworkClient:
                             msg = json.loads(line)
                             
                             # Intercept some state-altering messages automatically
-                            if msg.get('type') in ['ROOM_CREATED', 'ROOM_JOINED']:
-                                self.room_id = msg.get('room_id')
-                                self.my_color = msg.get('color')
+                            if msg.get('type') in ['ROOM_CREATED', 'ROOM_JOINED', 'GAME_START']:
+                                if 'room_id' in msg:
+                                    self.room_id = msg.get('room_id')
+                                if 'color' in msg:
+                                    self.my_color = msg.get('color')
                             
                             self.message_queue.put(msg)
                         except json.JSONDecodeError:
