@@ -17,6 +17,10 @@ from ui.animation import Animation
 from ui.action_panel_ui import ActionPanelUI
 from ui.dialog_ui import DrawOfferDialog
 from network.client import NetworkClient
+from pieces.rook import Rook
+from pieces.knight import Knight
+from pieces.bishop import Bishop
+from pieces.queen import Queen
 from config import WINDOW_WIDTH, WINDOW_HEIGHT, FPS, COLOR_BG
 
 
@@ -530,7 +534,8 @@ class GameController:
 
         if move_successful:
             if not getattr(self, "is_receiving_network_move", False) and getattr(self, "is_online_game", False) and getattr(self, "network_client", None):
-                self.network_client.send_move(start_pos, end_pos, promotion_piece)
+                promo_code = self._piece_class_to_promotion_code(promotion_piece) if promotion_piece else None
+                self.network_client.send_move(start_pos, end_pos, promo_code)
                 
             if last_move_index < len(self.game_state.move_log):
                 last_move = self.game_state.move_log[-1]
@@ -760,6 +765,9 @@ class GameController:
             
         if getattr(self, "is_showing_draw_dialog", False):
             self.draw_offer_dialog.draw(self.screen)
+        
+        if getattr(self, "is_promoting", False):
+            self.promotion_dialog.draw(self.screen)
             
         if hasattr(self, 'end_game_popup') and self.end_game_popup:
             self._draw_popup(self.end_game_popup["message"])
