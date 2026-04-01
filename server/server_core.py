@@ -65,8 +65,7 @@ class ChessServer:
             
             await self.send_message(writer, {
                 "type": "ROOM_CREATED",
-                "room_id": room_id,
-                "color": "white"
+                "room_id": room_id
             })
             print(f"[Server] Room {room_id} created by {writer.get_extra_info('peername')}")
             
@@ -78,28 +77,35 @@ class ChessServer:
                     room.add_player(writer)
                     self.client_rooms[writer] = room_id
                     
-                    # Target color logic can be improved, but usually creator is white and joiner is black
-                    await self.send_message(writer, {
+                    import random
+                    host_writer = room.players[0]
+                    joiner_writer = room.players[1]
+                    
+                    host_color = random.choice(["white", "black"])
+                    joiner_color = "black" if host_color == "white" else "white"
+                    
+                    await self.send_message(joiner_writer, {
                         "type": "ROOM_JOINED",
-                        "room_id": room_id,
-                        "color": "black" 
-                    })
-                    
-                    # Notify player 1 that the opponent joined
-                    await room.broadcast({
-                        "type": "OPPONENT_JOINED",
-                        "room_id": room_id,
-                        "color": "white"
-                    }, sender_writer=writer)
-                    
-                    # Notify both that game can start now
-                    await room.broadcast({
-                        "type": "GAME_START",
                         "room_id": room_id
                     })
-                    print(f"[Server] Room {room_id} is full. Game starting.")
                     
-                    print(f"[Server] Client joined room {room_id}")
+                    await self.send_message(host_writer, {
+                        "type": "OPPONENT_JOINED",
+                        "room_id": room_id
+                    })
+                    
+                    # Notify both that game can start now with assigned colors
+                    await self.send_message(host_writer, {
+                        "type": "GAME_START",
+                        "room_id": room_id,
+                        "color": host_color
+                    })
+                    await self.send_message(joiner_writer, {
+                        "type": "GAME_START",
+                        "room_id": room_id,
+                        "color": joiner_color
+                    })
+                    print(f"[Server] Room {room_id} is full. Game starting.")
                 else:
                     await self.send_error(writer, "Room is full.")
             else:

@@ -330,6 +330,8 @@ class GameController:
             # Keyboard events
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
+                    if getattr(self, "is_online_game", False):
+                        continue # Disable pausing in online multiplayer
                     # Open pause menu instead of quitting
                     self._pause_game()
                     return
@@ -813,7 +815,8 @@ class GameController:
                     self.screen, self.renderer.board_ui, self.renderer.piece_ui,
                     piece, start_pos, end_pos, self.game_state.board,
                     self.game_state, self.clock, 
-                    draw_callback=lambda: self.renderer.draw_player_panels(self.screen, self.game_state, self)
+                    draw_callback=lambda: self.renderer.draw_player_panels(self.screen, self.game_state, self, reversed_view=self.input_handler.reversed_view),
+                    reversed_view=self.input_handler.reversed_view
                 )
             
             try:

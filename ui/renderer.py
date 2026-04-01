@@ -107,7 +107,6 @@ class Renderer:
         ai_color = None
         ai_name = None
         is_human_vs_human = True
-        reversed_view = False
         
         if game_controller and hasattr(game_controller, 'ai_agent') and game_controller.ai_agent:
             ai_color = game_controller.ai_color

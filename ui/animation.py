@@ -11,7 +11,7 @@ class Animation:
         self.current_animation = None
 
     def animate_move(self, screen, board_ui, piece_ui, piece, start_sq, end_sq,
-                     board_grid, game_state, clock, draw_callback=None):
+                     board_grid, game_state, clock, draw_callback=None, reversed_view=False):
         """
         Animate a piece moving from start_sq to end_sq with smooth interpolation.
 
@@ -32,10 +32,15 @@ class Animation:
         sr, sc = start_sq
         er, ec = end_sq
 
-        start_x = BOARD_OFFSET_X + sc * SQUARE_SIZE + SQUARE_SIZE // 2
-        start_y = BOARD_OFFSET_Y + sr * SQUARE_SIZE + SQUARE_SIZE // 2
-        end_x = BOARD_OFFSET_X + ec * SQUARE_SIZE + SQUARE_SIZE // 2
-        end_y = BOARD_OFFSET_Y + er * SQUARE_SIZE + SQUARE_SIZE // 2
+        display_sc = (7 - sc) if reversed_view else sc
+        display_sr = (7 - sr) if reversed_view else sr
+        display_ec = (7 - ec) if reversed_view else ec
+        display_er = (7 - er) if reversed_view else er
+
+        start_x = BOARD_OFFSET_X + display_sc * SQUARE_SIZE + SQUARE_SIZE // 2
+        start_y = BOARD_OFFSET_Y + display_sr * SQUARE_SIZE + SQUARE_SIZE // 2
+        end_x = BOARD_OFFSET_X + display_ec * SQUARE_SIZE + SQUARE_SIZE // 2
+        end_y = BOARD_OFFSET_Y + display_er * SQUARE_SIZE + SQUARE_SIZE // 2
 
         duration = ANIMATION_DURATION
         start_time = time.time()
@@ -58,14 +63,14 @@ class Animation:
                     return
 
             # Redraw the scene with the piece at its interpolated position
-            board_ui.draw_board(screen)
+            board_ui.draw_board(screen, reversed_view=reversed_view)
 
             # Draw highlights for last move
             last_move_highlight = {"start": start_sq, "end": end_sq}
-            board_ui.draw_highlights(screen, last_move=last_move_highlight)
+            board_ui.draw_highlights(screen, last_move=last_move_highlight, reversed_view=reversed_view)
 
             # Draw all pieces except the one currently moving
-            piece_ui.draw_pieces(screen, board_grid, skip_pos=start_sq)
+            piece_ui.draw_pieces(screen, board_grid, skip_pos=start_sq, reversed_view=reversed_view)
 
             # Draw the animated piece at its interpolated position
             piece_ui.draw_piece_at(screen, piece, (current_x, current_y))
