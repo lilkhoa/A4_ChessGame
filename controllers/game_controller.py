@@ -347,6 +347,12 @@ class GameController:
             
             # Don't process moves if game is over
             if self.game_state.is_game_over:
+                if getattr(self, "end_game_popup", None) and hasattr(self, "_menu_btn_rect"):
+                    if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                        if self._menu_btn_rect.collidepoint(event.pos):
+                            self.app_state = "menu"
+                            if getattr(self, "network_client", None) and self.is_online_game:
+                                self.network_client.disconnect()
                 continue
 
             # Draw offer dialog is active: only process dialog clicks
@@ -779,8 +785,14 @@ class GameController:
     def _draw_popup(self, message):
         font = pygame.font.SysFont("Segoe UI", 36, bold=True)
         text_surf = font.render(message, True, (255, 255, 255))
-        rect_w = text_surf.get_width() + 60
-        rect_h = 100
+        
+        # Add Menu button surface
+        btn_font = pygame.font.SysFont("Segoe UI", 24, bold=True)
+        btn_text = btn_font.render("Menu", True, (255, 255, 255))
+        btn_w, btn_h = 120, 40
+        
+        rect_w = max(text_surf.get_width() + 60, btn_w + 60)
+        rect_h = 160
         cx, cy = self.screen.get_width() // 2, self.screen.get_height() // 2
         
         overlay = pygame.Surface((self.screen.get_width(), self.screen.get_height()), pygame.SRCALPHA)
@@ -790,7 +802,24 @@ class GameController:
         popup_rect = pygame.Rect(cx - rect_w//2, cy - rect_h//2, rect_w, rect_h)
         pygame.draw.rect(self.screen, (40, 40, 45), popup_rect, border_radius=12)
         pygame.draw.rect(self.screen, (255, 215, 0), popup_rect, 3, border_radius=12)
-        self.screen.blit(text_surf, (cx - text_surf.get_width()//2, cy - text_surf.get_height()//2))
+        
+        # Draw text
+        self.screen.blit(text_surf, (cx - text_surf.get_width()//2, cy - rect_h//2 + 30))
+        
+        # Draw Menu button
+        btn_rect = pygame.Rect(cx - btn_w//2, cy + 15, btn_w, btn_h)
+        
+        mouse_pos = pygame.mouse.get_pos()
+        if btn_rect.collidepoint(mouse_pos):
+            pygame.draw.rect(self.screen, (100, 100, 110), btn_rect, border_radius=8)
+        else:
+            pygame.draw.rect(self.screen, (70, 70, 80), btn_rect, border_radius=8)
+        pygame.draw.rect(self.screen, (200, 200, 200), btn_rect, 2, border_radius=8)
+        
+        self.screen.blit(btn_text, (cx - btn_text.get_width()//2, cy + 15 + (btn_h - btn_text.get_height())//2))
+        
+        # Store rect for event handling
+        self._menu_btn_rect = btn_rect
 
     def _process_network_messages(self):
         try:
@@ -882,6 +911,7 @@ class GameController:
             SaveManager.save_game(self)
             print("Game auto-saved on exit.")
         self.app_state = "quit"
+        self.running = False
         if getattr(self, "network_client", None):
             self.network_client.disconnect()
 
