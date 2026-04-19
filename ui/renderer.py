@@ -94,8 +94,9 @@ class Renderer:
         # Draw new player panels sidebar
         self.draw_player_panels(screen, game_state, game_controller, reversed_view)
 
-        # Draw game-over overlay
-        if game_state.is_checkmate or game_state.is_draw or game_state.timeout_winner or game_state.resigned_player or game_state.is_draw_agreed:
+        # Draw game-over overlay only when no full-screen popup is handling it
+        has_popup = game_controller and getattr(game_controller, "end_game_popup", None)
+        if not has_popup and (game_state.is_checkmate or game_state.is_draw or game_state.timeout_winner or game_state.resigned_player or game_state.is_draw_agreed):
             self.draw_game_over_overlay(screen, game_state)
 
     def draw_player_panels(self, screen, game_state, game_controller, reversed_view=False):

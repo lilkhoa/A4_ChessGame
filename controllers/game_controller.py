@@ -102,6 +102,10 @@ class GameController:
         self.is_showing_draw_dialog = False  # Draw offer dialog is active
         self.pending_draw_offer_from_opponent = False  # We received a draw offer, waiting for response
 
+        # Timed notice banner (text, seconds remaining)
+        self._notice_text = ""
+        self._notice_timer = 0.0
+
     def run(self):
         """
         Main application loop.
@@ -312,6 +316,10 @@ class GameController:
             
             # Update: Action panel cooldowns (for draw offer spamming prevention)
             self.action_panel_ui.tick(delta_time)
+
+            # Update: timed notice banner
+            if self._notice_timer > 0:
+                self._notice_timer -= delta_time
             
             # Update: Sync timer values from turn_controller to game_state
             self._update_timers()
@@ -782,7 +790,10 @@ class GameController:
             
         if hasattr(self, 'end_game_popup') and self.end_game_popup:
             self._draw_popup(self.end_game_popup["message"])
-            
+
+        if self._notice_timer > 0 and self._notice_text:
+            self._draw_notice(self._notice_text)
+
         pygame.display.flip()
 
     def _draw_popup(self, message):
@@ -823,6 +834,19 @@ class GameController:
         
         # Store rect for event handling
         self._menu_btn_rect = btn_rect
+
+    def _draw_notice(self, message):
+        """Draw a small timed banner near the top of the board area."""
+        font = pygame.font.SysFont("Segoe UI", 20, bold=True)
+        text_surf = font.render(message, True, (255, 255, 255))
+        padding_x, padding_y = 24, 12
+        rect_w = text_surf.get_width() + padding_x * 2
+        rect_h = text_surf.get_height() + padding_y * 2
+        cx = self.screen.get_width() // 2
+        notice_rect = pygame.Rect(cx - rect_w // 2, 18, rect_w, rect_h)
+        pygame.draw.rect(self.screen, (50, 50, 60), notice_rect, border_radius=8)
+        pygame.draw.rect(self.screen, (180, 180, 180), notice_rect, 2, border_radius=8)
+        self.screen.blit(text_surf, (notice_rect.x + padding_x, notice_rect.y + padding_y))
 
     def _process_network_messages(self):
         try:
@@ -879,6 +903,8 @@ class GameController:
             self._handle_game_over({"status": "draw", "message": "Draw (agreed)!"})
         elif msg_type == "DECLINE_DRAW":
             self.action_panel_ui.set_draw_offer_cooldown(10.0)
+            self._notice_text = "The opponent declined the draw."
+            self._notice_timer = 4.0
 
     # ==================== Pause State ====================
 
@@ -1007,6 +1033,8 @@ class GameController:
             self.input_handler.reversed_view = (player_color == 'black')
             
         self.end_game_popup = None
+        self._notice_text = ""
+        self._notice_timer = 0.0
         self._reset_game()
         # Delete any existing save since we're starting fresh
         SaveManager.delete_save()
