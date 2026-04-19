@@ -418,7 +418,8 @@ class GameController:
             "type": "RESIGN",
             "player": self.online_color
         })
-        self._handle_game_over({"status": "resign", "message": "Bạn đã đầu hàng!"})
+        self.game_state.resigned_player = self.online_color
+        self._handle_game_over({"status": "resign", "message": "You resigned!"})
 
     def _handle_offer_draw_click(self):
         """Player clicked offer draw button."""
@@ -445,11 +446,13 @@ class GameController:
             "player": self.online_color
         })
         
-        # Close dialog and wait for server game-over confirmation
+        # Close dialog and end game locally — the server only forwards ACCEPT_DRAW
+        # to the opponent (the offerer), so we must trigger our own game-over here.
         self.is_showing_draw_dialog = False
         self.pending_draw_offer_from_opponent = False
         self.draw_offer_dialog.close()
-        self.waiting_for_server = True
+        self.game_state.is_draw_agreed = True
+        self._handle_game_over({"status": "draw", "message": "Draw (agreed)!"})
     
     def _handle_decline_draw(self):
         """
@@ -626,11 +629,11 @@ class GameController:
         if getattr(self, "is_online_game", False) and getattr(self, "online_color", None):
             winner = game_status.get('winner')
             if winner == self.online_color:
-                message = "Bạn đã thắng!"
+                message = "You win!"
             elif winner and winner != self.online_color:
-                message = "Bạn đã thua!"
+                message = "You lose!"
             elif status_type in ["draw", "stalemate", "threefold_repetition", "fifty_move_rule", "insufficient_material"]:
-                message = "Hòa!"
+                message = "Draw!"
 
         # Play game end sound
         self.sound_manager.play_game_end()
@@ -856,10 +859,14 @@ class GameController:
         elif msg_type == "OPPONENT_DISCONNECTED":
             # Only show if not game over already
             if not self.game_state.is_game_over:
-                self._handle_game_over({"status": "disconnect", "message": "Đối thủ đã mất kết nối"})
+                opponent_color = "white" if self.online_color == "black" else "black"
+                self.game_state.resigned_player = opponent_color
+                self._handle_game_over({"status": "disconnect", "message": "Opponent disconnected. You win!"})
         elif msg_type == "RESIGN":
             if not self.game_state.is_game_over:
-                self._handle_game_over({"status": "resign", "message": "Đối thủ đã đầu hàng!"})
+                opponent_color = "white" if self.online_color == "black" else "black"
+                self.game_state.resigned_player = opponent_color
+                self._handle_game_over({"status": "resign", "message": "Opponent resigned. You win!"})
         elif msg_type == "OFFER_DRAW":
             self.is_showing_draw_dialog = True
             self.pending_draw_offer_from_opponent = True
@@ -868,7 +875,8 @@ class GameController:
             self.is_showing_draw_dialog = False
             self.pending_draw_offer_from_opponent = False
             self.draw_offer_dialog.close()
-            self._handle_game_over({"status": "draw", "message": "Hòa (đồng ý)!"})
+            self.game_state.is_draw_agreed = True
+            self._handle_game_over({"status": "draw", "message": "Draw (agreed)!"})
         elif msg_type == "DECLINE_DRAW":
             self.action_panel_ui.set_draw_offer_cooldown(10.0)
 

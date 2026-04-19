@@ -151,9 +151,13 @@ class Renderer:
                 is_active=black_active
             )
             
-            # White panel at top (AI's side)
-            white_avatar = self.avatar_computer  # AI is white
-            white_name = ai_name
+            # White panel at top (opponent's side)
+            if is_human_vs_human:
+                white_avatar = self.avatar_player  # Opponent is also human
+                white_name = "Opponent"
+            else:
+                white_avatar = self.avatar_computer  # AI is white
+                white_name = ai_name
             white_active = game_state.current_turn == 'white'
             self._draw_player_panel(
                 screen,
@@ -171,8 +175,14 @@ class Renderer:
             )
         else:
             # Normal view: White at bottom
+            is_online = game_controller and getattr(game_controller, "is_online_game", False)
             white_avatar = self.avatar_computer if ai_color == 'white' else self.avatar_player
-            white_name = ai_name if ai_color == 'white' else ("Player 1" if is_human_vs_human else "Player")
+            if ai_color == 'white':
+                white_name = ai_name
+            elif is_online:
+                white_name = "Player"
+            else:
+                white_name = "Player 1"
             white_active = game_state.current_turn == 'white'
             self._draw_player_panel(
                 screen,
@@ -191,7 +201,12 @@ class Renderer:
             
             # Black panel at top
             black_avatar = self.avatar_computer if ai_color == 'black' else self.avatar_player
-            black_name = ai_name if ai_color == 'black' else ("Player 2" if is_human_vs_human else "Player")
+            if ai_color == 'black':
+                black_name = ai_name
+            elif is_online:
+                black_name = "Opponent"
+            else:
+                black_name = "Player 2"
             black_active = game_state.current_turn == 'black'
             self._draw_player_panel(
                 screen,
